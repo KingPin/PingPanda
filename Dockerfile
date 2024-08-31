@@ -1,9 +1,9 @@
 FROM alpine:latest
 
-org.opencontainers.image.source = "https://github.com/KingPin/PingPanda"
-org.opencontainers.image.authors = "KingPin"
-org.opencontainers.image.description = "A simple container that pings a list of hosts, ips, and checks DNS, SSL expiry and logs the results"
-org.opencontainers.image.url = "https://github.com/KingPin/PingPanda/pkgs/container/pingpanda"
+LABEL org.opencontainers.image.source="https://github.com/KingPin/PingPanda"
+LABEL org.opencontainers.image.authors="KingPin"
+LABEL org.opencontainers.image.description="A simple container that pings a list of hosts, ips, and checks DNS, SSL expiry and logs the results"
+LABEL org.opencontainers.image.url="https://github.com/KingPin/PingPanda/pkgs/container/pingpanda"
 
 # Install necessary packages
 RUN apk add --no-cache bash bind-tools iputils curl
