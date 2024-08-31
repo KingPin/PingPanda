@@ -18,6 +18,7 @@ services:
       - SUCCESS_HTTP_CODES=200,201,202 # HTTP status codes considered successful
       - SLACK_WEBHOOK_URL= # Slack webhook URL for notifications
       - TEAMS_WEBHOOK_URL= # Teams webhook URL for notifications
+      - DISCORD_WEBHOOK_URL= # Discord webhook URL for notifications
       - ALERT_THRESHOLD=3 # Number of consecutive failures before alerting
       - DOMAINS=google.com,yahoo.com # Comma-separated list of domains to check DNS for
       - PING_IPS=8.8.8.8,1.1.1.1 # Comma-separated list of IPs to ping

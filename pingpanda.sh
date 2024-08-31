@@ -17,6 +17,7 @@ RETRY_COUNT=${RETRY_COUNT:-3} # Default to 3 retries
 SUCCESS_HTTP_CODES=${SUCCESS_HTTP_CODES:-200} # Default to HTTP 200 as success
 SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-} # Slack webhook URL for notifications
 TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL:-} # Teams webhook URL for notifications
+DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-} # Discord webhook URL for notifications
 ALERT_THRESHOLD=${ALERT_THRESHOLD:-3} # Number of consecutive failures before alerting
 DOMAINS=${DOMAINS:-google.com} # Comma-separated list of domains to check DNS for
 PING_IPS=${PING_IPS:-1.1.1.1} # Comma-separated list of IPs to ping
@@ -46,6 +47,9 @@ send_notification() {
     fi
     if [ -n "$TEAMS_WEBHOOK_URL" ]; then
         curl -H 'Content-Type: application/json' -d "{\"text\":\"$message\"}" $TEAMS_WEBHOOK_URL
+    fi
+    if [ -n "$DISCORD_WEBHOOK_URL" ]; then
+        curl -H 'Content-Type: application/json' -d "{\"content\":\"$message\"}" $DISCORD_WEBHOOK_URL
     fi
 }
 
