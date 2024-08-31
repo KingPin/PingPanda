@@ -3,8 +3,6 @@ services:
     image: ghcr.io/kingpin/pingpanda:latest # Use the latest image
     container_name: pingpanda # Container name
     environment:
-      - DOMAIN=google.com # Domain to check fns for 
-      - PING_IP=8.8.8.8 # IP to ping
       - LOG_DIR=/logs # Directory to store logs
       - LOG_TO_TERMINAL=true # Log to terminal
       - LOG_TO_FILE=true # Log to file
@@ -18,6 +16,12 @@ services:
       - CHECK_WEBSITE=https://www.google.com # Website to check
       - RETRY_COUNT=1 # Number of retries for checks
       - SUCCESS_HTTP_CODES=200,201,202 # HTTP status codes considered successful
+      - SLACK_WEBHOOK_URL= # Slack webhook URL for notifications
+      - TEAMS_WEBHOOK_URL= # Teams webhook URL for notifications
+      - ALERT_THRESHOLD=3 # Number of consecutive failures before alerting
+      - DOMAINS=google.com,yahoo.com # Comma-separated list of domains to check DNS for
+      - PING_IPS=8.8.8.8,1.1.1.1 # Comma-separated list of IPs to ping
+      - SSL_CHECK_DOMAINS=google.com,yahoo.com # Comma-separated list of domains to check SSL expiry
     volumes:
       - ./logs:/logs # Mount logs directory
     restart: unless-stopped # Restart unless stopped

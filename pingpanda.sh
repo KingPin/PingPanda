@@ -3,8 +3,6 @@
 # Read environment variables
 LOG_DIR=${LOG_DIR:-/logs} # Default to /logs
 LOG_FILE="$LOG_DIR/pingpanda.log" # Default to /logs/pingpanda.log
-DOMAIN=${DOMAIN:-google.com} # Default to google.com
-PING_IP=${PING_IP:-1.1.1.1} # Default to Cloudflare DNS
 INTERVAL=${INTERVAL:-15} # Default to 15 seconds
 VERBOSE=${VERBOSE:-false} # Default to non-verbose mode
 MAX_LOG_SIZE=${MAX_LOG_SIZE:-1048576} # 1MB default max log size
@@ -17,6 +15,12 @@ CHECK_WEBSITE=${CHECK_WEBSITE:-} # Default to no website check
 ENABLE_WEBSITE_CHECK=${ENABLE_WEBSITE_CHECK:-false} # Default to disable website check
 RETRY_COUNT=${RETRY_COUNT:-3} # Default to 3 retries
 SUCCESS_HTTP_CODES=${SUCCESS_HTTP_CODES:-200} # Default to HTTP 200 as success
+SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-} # Slack webhook URL for notifications
+TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL:-} # Teams webhook URL for notifications
+ALERT_THRESHOLD=${ALERT_THRESHOLD:-3} # Number of consecutive failures before alerting
+DOMAINS=${DOMAINS:-google.com} # Comma-separated list of domains to check DNS for
+PING_IPS=${PING_IPS:-1.1.1.1} # Comma-separated list of IPs to ping
+SSL_CHECK_DOMAINS=${SSL_CHECK_DOMAINS:-google.com} # Comma-separated list of domains to check SSL expiry
 
 # Ensure log directory exists
 mkdir -p $LOG_DIR
@@ -31,6 +35,17 @@ log() {
     fi
     if [ "$LOG_TO_FILE" = "true" ]; then
         echo "$timestamp - $level - $message" >> $LOG_FILE
+    fi
+}
+
+# Function to send notifications
+send_notification() {
+    local message=$1
+    if [ -n "$SLACK_WEBHOOK_URL" ]; then
+        curl -X POST -H 'Content-type: application/json' --data "{\"text\":\"$message\"}" $SLACK_WEBHOOK_URL
+    fi
+    if [ -n "$TEAMS_WEBHOOK_URL" ]; then
+        curl -H 'Content-Type: application/json' -d "{\"text\":\"$message\"}" $TEAMS_WEBHOOK_URL
     fi
 }
 
@@ -49,36 +64,44 @@ rotate_logs() {
 
 # Function to check DNS resolution
 check_dns() {
-    if [ "$ENABLE_DNS" = "true" ]; then
-        local start_time=$(date +%s%3N)
-        for ((i=0; i<$RETRY_COUNT; i++)); do
-            if dig +short $DOMAIN > /dev/null 2>&1; then
-                local end_time=$(date +%s%3N)
-                local duration=$((end_time - start_time))
-                log "DNS Resolution for $DOMAIN: PASS (Time: ${duration}ms)"
-                return
-            else
-                [ "$VERBOSE" = "true" ] && log "DNS Resolution attempt $((i+1)) for $DOMAIN failed" "DEBUG"
-            fi
-        done
-        local error=$(dig $DOMAIN 2>&1)
-        log "DNS Resolution for $DOMAIN: FAIL - $error"
-    fi
+    local domains=(${DOMAINS//,/ })
+    for domain in "${domains[@]}"; do
+        if [ "$ENABLE_DNS" = "true" ]; then
+            local start_time=$(date +%s%3N)
+            for ((i=0; i<$RETRY_COUNT; i++)); do
+                if dig +short $domain > /dev/null 2>&1; then
+                    local end_time=$(date +%s%3N)
+                    local duration=$((end_time - start_time))
+                    log "DNS Resolution for $domain: PASS (Time: ${duration}ms)"
+                    return
+                else
+                    [ "$VERBOSE" = "true" ] && log "DNS Resolution attempt $((i+1)) for $domain failed" "DEBUG"
+                fi
+            done
+            local error=$(dig $domain 2>&1)
+            log "DNS Resolution for $domain: FAIL - $error"
+            send_notification "DNS Resolution for $domain: FAIL - $error"
+        fi
+    done
 }
 
 # Function to check ping
 check_ping() {
-    if [ "$ENABLE_PING" = "true" ]; then
-        for ((i=0; i<$RETRY_COUNT; i++)); do
-            if ping -c 1 $PING_IP > /dev/null 2>&1; then
-                log "Ping to $PING_IP: PASS"
-                return
-            else
-                [ "$VERBOSE" = "true" ] && log "Ping attempt $((i+1)) to $PING_IP failed" "DEBUG"
-            fi
-        done
-        log "Ping to $PING_IP: FAIL"
-    fi
+    local ips=(${PING_IPS//,/ })
+    for ip in "${ips[@]}"; do
+        if [ "$ENABLE_PING" = "true" ]; then
+            for ((i=0; i<$RETRY_COUNT; i++)); do
+                if ping -c 1 $ip > /dev/null 2>&1; then
+                    log "Ping to $ip: PASS"
+                    return
+                else
+                    [ "$VERBOSE" = "true" ] && log "Ping attempt $((i+1)) to $ip failed" "DEBUG"
+                fi
+            done
+            log "Ping to $ip: FAIL"
+            send_notification "Ping to $ip: FAIL"
+        fi
+    done
 }
 
 # Function to check website for specified HTTP response codes
@@ -92,8 +115,26 @@ check_website() {
             log "Website check for $CHECK_WEBSITE: PASS (HTTP Status: $http_status, Time: ${duration}ms)"
         else
             log "Website check for $CHECK_WEBSITE: FAIL (HTTP Status: $http_status, Time: ${duration}ms)"
+            send_notification "Website check for $CHECK_WEBSITE: FAIL (HTTP Status: $http_status, Time: ${duration}ms)"
         fi
     fi
+}
+
+# Function to check SSL certificate expiry
+check_ssl_expiry() {
+    local domains=(${SSL_CHECK_DOMAINS//,/ })
+    for domain in "${domains[@]}"; do
+        local expiry_date=$(echo | openssl s_client -servername $domain -connect $domain:443 2>/dev/null | openssl x509 -noout -dates | grep 'notAfter' | cut -d= -f2)
+        local expiry_timestamp=$(date -d "$expiry_date" +%s)
+        local current_timestamp=$(date +%s)
+        local days_left=$(( (expiry_timestamp - current_timestamp) / 86400 ))
+        if [ $days_left -le 30 ]; then
+            log "SSL certificate for $domain expires in $days_left days"
+            send_notification "SSL certificate for $domain expires in $days_left days"
+        else
+            log "SSL certificate for $domain is valid for $days_left more days"
+        fi
+    done
 }
 
 # Function to handle graceful shutdown
@@ -107,6 +148,7 @@ command -v nc >/dev/null 2>&1 || { echo >&2 "nc (netcat) is required but it's no
 command -v ping >/dev/null 2>&1 || { echo >&2 "ping is required but it's not installed. Aborting."; exit 1; }
 command -v dig >/dev/null 2>&1 || { echo >&2 "dig is required but it's not installed. Aborting."; exit 1; }
 command -v curl >/dev/null 2>&1 || { echo >&2 "curl is required but it's not installed. Aborting."; exit 1; }
+command -v openssl >/dev/null 2>&1 || { echo >&2 "openssl is required but it's not installed. Aborting."; exit 1; }
 
 # Trap termination signals for graceful shutdown
 trap graceful_shutdown SIGTERM SIGINT
@@ -117,5 +159,6 @@ while true; do
     check_dns
     check_ping
     check_website
+    check_ssl_expiry
     sleep $INTERVAL
 done
