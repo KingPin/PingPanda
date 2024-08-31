@@ -2,8 +2,8 @@
 
 # Read environment variables
 LOG_DIR=${LOG_DIR:-/logs} # Default to /logs
-LOG_FILE="$LOG_DIR/dns_check.log" # Default to /logs/dns_check.log
-DOMAIN=${DOMAIN:-fcm.googleapis.com} # Default to Firebase Cloud Messaging
+LOG_FILE="$LOG_DIR/pingpanda.log" # Default to /logs/pingpanda.log
+DOMAIN=${DOMAIN:-google.com} # Default to google.com
 PING_IP=${PING_IP:-1.1.1.1} # Default to Cloudflare DNS
 INTERVAL=${INTERVAL:-15} # Default to 15 seconds
 VERBOSE=${VERBOSE:-false} # Default to non-verbose mode
