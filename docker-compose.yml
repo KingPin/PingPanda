@@ -1,0 +1,29 @@
+services:
+  dns_checker:
+    image: ghcr.io/kingpin/dns_checker:latest # Use the latest image
+    container_name: dns_checker # Container name
+    environment:
+      - DOMAIN=fcm.googleapis.com # Domain to check
+      - PING_IP=8.8.8.8 # IP to ping
+      - LOG_DIR=/logs # Directory to store logs
+      - INTERVAL=15 # Interval in seconds
+      - VERBOSE=true # Enable verbose logging
+      - MAX_LOG_SIZE=1048576 # Maximum log size in bytes
+      - LOG_BACKUP_COUNT=5 # Number of backup logs to keep
+      - LOG_TO_TERMINAL=true # Log to terminal
+      - LOG_TO_FILE=true # Log to file
+      - ENABLE_PING=true # Enable ping checks
+      - ENABLE_DNS=true # Enable DNS checks
+      - CHECK_WEBSITE=https://www.google.com # Website to check
+      - ENABLE_WEBSITE_CHECK=true # Enable website check
+      - RETRY_COUNT=1 # Number of retries for checks
+      - SUCCESS_HTTP_CODES=200,201,202 # HTTP status codes considered successful
+    volumes:
+      - ./logs:/logs # Mount logs directory
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"] # Check if the server is running
+      interval: 30s # Check every 30 seconds
+      timeout: 10s # Timeout after 10 seconds
+      retries: 3 # Retry 3 times
+      start_period: 10s # Start after 10 seconds
+    restart: unless-stopped # Restart unless stopped
