@@ -41,9 +41,11 @@ jobs:
         id: vars
         run: echo "GIT_COMMIT_SHORT=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
 
-      - name: Convert repository name to lowercase
-        id: repo_name
-        run: echo "REPO_NAME=$(echo ${{ github.event.repository.name }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+      - name: Convert repository owner and name to lowercase
+        id: repo_info
+        run: |
+          echo "REPO_OWNER=$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+          echo "REPO_NAME=$(echo ${{ github.event.repository.name }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
@@ -53,14 +55,14 @@ jobs:
           platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/${{ env.REPO_NAME }}:latest
-            ghcr.io/${{ github.repository_owner }}/${{ env.REPO_NAME }}:${{ env.GIT_COMMIT_SHORT }}
+            ghcr.io/${{ env.REPO_OWNER }}/${{ env.REPO_NAME }}:latest
+            ghcr.io/${{ env.REPO_OWNER }}/${{ env.REPO_NAME }}:${{ env.GIT_COMMIT_SHORT }}
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: image
-          image-ref: ghcr.io/${{ github.repository_owner }}/${{ env.REPO_NAME }}:latest
+          image-ref: ghcr.io/${{ env.REPO_OWNER }}/${{ env.REPO_NAME }}:latest
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'MEDIUM,CRITICAL,HIGH'
