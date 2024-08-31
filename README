@@ -1,7 +1,3 @@
-Sure! Below is the updated README file with instructions to use `wget` or `curl` to download the `docker-compose.yml` file directly from the specified URL.
-
----
-
 # PingPanda
 
 PingPanda is a Dockerized script that performs periodic checks for DNS resolution, ping responses, and website availability. It logs the results to a specified directory and can be configured to log to the terminal as well.
@@ -84,5 +80,3 @@ Contributions are welcome! Please open an issue or submit a pull request.
 ## License
 
 This project is licensed under the GNU General Public License v3.0. See the [LICENSE](LICENSE) file for details.
-
----
