@@ -24,12 +24,13 @@ mkdir -p $LOG_DIR
 # Function to log messages
 log() {
     local message=$1
+    local level=${2:-INFO}
     local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
     if [ "$LOG_TO_TERMINAL" = "true" ]; then
-        echo "$timestamp - $message"
+        echo "$timestamp - $level - $message"
     fi
     if [ "$LOG_TO_FILE" = "true" ]; then
-        echo "$timestamp - $message" >> $LOG_FILE
+        echo "$timestamp - $level - $message" >> $LOG_FILE
     fi
 }
 
@@ -56,6 +57,8 @@ check_dns() {
                 local duration=$((end_time - start_time))
                 log "DNS Resolution for $DOMAIN: PASS (Time: ${duration}ms)"
                 return
+            else
+                [ "$VERBOSE" = "true" ] && log "DNS Resolution attempt $((i+1)) for $DOMAIN failed" "DEBUG"
             fi
         done
         local error=$(dig $DOMAIN 2>&1)
@@ -70,6 +73,8 @@ check_ping() {
             if ping -c 1 $PING_IP > /dev/null 2>&1; then
                 log "Ping to $PING_IP: PASS"
                 return
+            else
+                [ "$VERBOSE" = "true" ] && log "Ping attempt $((i+1)) to $PING_IP failed" "DEBUG"
             fi
         done
         log "Ping to $PING_IP: FAIL"

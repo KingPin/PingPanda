@@ -14,8 +14,8 @@ services:
       - LOG_BACKUP_COUNT=5 # Number of backup logs to keep
       - ENABLE_PING=true # Enable ping checks
       - ENABLE_DNS=true # Enable DNS checks
-      - CHECK_WEBSITE=https://www.google.com # Website to check
       - ENABLE_WEBSITE_CHECK=true # Enable website check
+      - CHECK_WEBSITE=https://www.google.com # Website to check
       - RETRY_COUNT=1 # Number of retries for checks
       - SUCCESS_HTTP_CODES=200,201,202 # HTTP status codes considered successful
     volumes:
