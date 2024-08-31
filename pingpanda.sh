@@ -91,45 +91,6 @@ check_website() {
     fi
 }
 
-# Function to start a detailed HTTP health check server
-start_health_check_server() {
-    while true; do
-        local dns_status="UNKNOWN"
-        local ping_status="UNKNOWN"
-        local website_status="UNKNOWN"
-        
-        if [ "$ENABLE_DNS" = "true" ]; then
-            if dig +short $DOMAIN > /dev/null 2>&1; then
-                dns_status="PASS"
-            else
-                dns_status="FAIL"
-            fi
-        fi
-        
-        if [ "$ENABLE_PING" = "true" ]; then
-            if ping -c 1 $PING_IP > /dev/null 2>&1; then
-                ping_status="PASS"
-            else
-                ping_status="FAIL"
-            fi
-        fi
-        
-        if [ "$ENABLE_WEBSITE_CHECK" = "true" ] && [ -n "$CHECK_WEBSITE" ]; then
-            local http_status=$(curl -s -o /dev/null -w "%{http_code}" $CHECK_WEBSITE)
-            if [[ ",$SUCCESS_HTTP_CODES," == *",$http_status,"* ]]; then
-                website_status="PASS"
-            else
-                website_status="FAIL"
-            fi
-        fi
-        
-        { 
-            echo -ne "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n"
-            echo -ne "{\"dns_status\":\"$dns_status\",\"ping_status\":\"$ping_status\",\"website_status\":\"$website_status\"}"
-        } | nc -l -p 8080 -q 1 > /dev/null 2>&1
-    done
-}
-
 # Function to handle graceful shutdown
 graceful_shutdown() {
     log "Shutting down gracefully..."
@@ -144,9 +105,6 @@ command -v curl >/dev/null 2>&1 || { echo >&2 "curl is required but it's not ins
 
 # Trap termination signals for graceful shutdown
 trap graceful_shutdown SIGTERM SIGINT
-
-# Start health check server in the background
-start_health_check_server &
 
 # Main loop to perform checks and rotate logs
 while true; do
