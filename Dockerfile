@@ -6,7 +6,7 @@ LABEL org.opencontainers.image.description="A simple container that pings a list
 LABEL org.opencontainers.image.url="https://github.com/KingPin/PingPanda/pkgs/container/pingpanda"
 
 # Install necessary packages
-RUN apk add --no-cache bash bind-tools iputils curl
+RUN apk add --no-cache bash bind-tools iputils curl openssl
 
 # Copy the script into the container
 COPY pingpanda.sh /usr/local/bin/pingpanda.sh
