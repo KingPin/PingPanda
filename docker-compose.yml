@@ -23,6 +23,7 @@ services:
       - DOMAINS=google.com,yahoo.com # Comma-separated list of domains to check DNS for
       - PING_IPS=8.8.8.8,1.1.1.1 # Comma-separated list of IPs to ping
       - SSL_CHECK_DOMAINS=google.com,yahoo.com # Comma-separated list of domains to check SSL expiry
+      - ENABLE_SSL_CHECK=false # Enable SSL expiry check
     volumes:
       - ./logs:/logs # Mount logs directory
     restart: unless-stopped # Restart unless stopped

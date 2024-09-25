@@ -22,6 +22,7 @@ ALERT_THRESHOLD=${ALERT_THRESHOLD:-3} # Number of consecutive failures before al
 DOMAINS=${DOMAINS:-google.com} # Comma-separated list of domains to check DNS for
 PING_IPS=${PING_IPS:-1.1.1.1} # Comma-separated list of IPs to ping
 SSL_CHECK_DOMAINS=${SSL_CHECK_DOMAINS:-google.com} # Comma-separated list of domains to check SSL expiry
+ENABLE_SSL_CHECK=${ENABLE_SSL_CHECK:-false} # Default to enable SSL check
 
 # Ensure log directory exists
 mkdir -p $LOG_DIR
@@ -127,18 +128,20 @@ check_website() {
 # Function to check SSL certificate expiry
 check_ssl_expiry() {
     local domains=(${SSL_CHECK_DOMAINS//,/ })
-    for domain in "${domains[@]}"; do
-        local expiry_date=$(echo | openssl s_client -servername $domain -connect $domain:443 2>/dev/null | openssl x509 -noout -dates | grep 'notAfter' | cut -d= -f2)
-        local expiry_timestamp=$(date -d "$expiry_date" +%s)
-        local current_timestamp=$(date +%s)
-        local days_left=$(( (expiry_timestamp - current_timestamp) / 86400 ))
-        if [ $days_left -le 30 ]; then
-            log "SSL certificate for $domain expires in $days_left days"
-            send_notification "SSL certificate for $domain expires in $days_left days"
-        else
-            log "SSL certificate for $domain is valid for $days_left more days"
-        fi
-    done
+    if [ "$ENABLE_SSL_CHECK" = "true" ]; then
+        for domain in "${domains[@]}"; do
+            local expiry_date=$(echo | openssl s_client -servername $domain -connect $domain:443 2>/dev/null | openssl x509 -noout -dates | grep 'notAfter' | cut -d= -f2)
+            local expiry_timestamp=$(date -d "$expiry_date" +%s)
+            local current_timestamp=$(date +%s)
+            local days_left=$(( (expiry_timestamp - current_timestamp) / 86400 ))
+            if [ $days_left -le 30 ]; then
+                log "SSL certificate for $domain expires in $days_left days"
+                send_notification "SSL certificate for $domain expires in $days_left days"
+            else
+                log "SSL certificate for $domain is valid for $days_left more days"
+            fi
+        done
+    fi
 }
 
 # Function to handle graceful shutdown
