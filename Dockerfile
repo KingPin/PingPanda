@@ -23,11 +23,15 @@ RUN mkdir -p /logs
 # Set working directory
 WORKDIR /app
 
-# Install Python dependencies
-RUN pip install --no-cache-dir \
-    pythonping \
-    requests \
-    slack-sdk
+# Copy requirements and install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# # Install Python dependencies
+# RUN pip install --no-cache-dir \
+#     pythonping \
+#     requests \
+#     slack-sdk
 
 # Copy the Python application
 COPY pingpanda.py .
