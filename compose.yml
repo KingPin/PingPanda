@@ -1,0 +1,51 @@
+services:
+  pingpanda:
+    image: ghcr.io/kingpin/pingpanda:latest
+    container_name: pingpanda
+    environment:
+      # Logging configuration
+      - LOG_DIR=/logs
+      - LOG_FILE=pingpanda.log
+      - LOG_LEVEL=INFO
+      - LOG_TO_TERMINAL=true
+      - LOG_TO_FILE=true
+      - MAX_LOG_SIZE=1048576
+      - LOG_BACKUP_COUNT=5
+      
+      # Core settings
+      - INTERVAL=15
+      - VERBOSE=true
+      - RETRY_COUNT=3
+      
+      # Check enablement
+      - ENABLE_PING=true
+      - ENABLE_DNS=true
+      - ENABLE_WEBSITE_CHECK=true
+      - ENABLE_SSL_CHECK=false
+      
+      # Check targets
+      - DOMAINS=google.com,yahoo.com
+      - PING_IPS=8.8.8.8,1.1.1.1
+      - CHECK_WEBSITE=https://www.google.com
+      - SSL_CHECK_DOMAINS=google.com,yahoo.com
+      
+      # Check configuration
+      - SUCCESS_HTTP_CODES=200,201,202
+      - SSL_WARN_DAYS=30
+      - SSL_CRITICAL_DAYS=7
+      
+      # Notification settings
+      - SLACK_WEBHOOK_URL=
+      - TEAMS_WEBHOOK_URL=
+      - DISCORD_WEBHOOK_URL=
+      - ALERT_THRESHOLD=3
+      - NOTIFY_RECOVERY=true
+    volumes:
+      - ./logs:/logs
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_RAW  # Required for ping functionality
