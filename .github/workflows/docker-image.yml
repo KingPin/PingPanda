@@ -2,21 +2,20 @@ name: PingPanda CI Pipeline
 
 on:
   push:
-    branches:
-      - main
     paths:
       - 'Dockerfile'
       - 'pingpanda.py'
       - 'requirements.txt'
       - '.github/workflows/docker-image.yml'
   pull_request:
-    branches: [ main ]
     paths:
       - 'Dockerfile'
       - 'pingpanda.py'
       - 'requirements.txt'
+      - '.github/workflows/docker-image.yml'
   release:
     types: [published]
+  # Allow manual runs
   workflow_dispatch:
 
 jobs:
@@ -60,6 +59,12 @@ jobs:
         with:
           fetch-depth: 0  # Fetch all history for proper versioning
 
+      # Set environment variable for build info
+      - name: Set build info
+        run: |
+          echo "SHOULD_PUSH=${{ github.ref == 'refs/heads/main' || github.event_name == 'release' }}" >> $GITHUB_ENV
+          echo "BUILD_SOURCE=${{ github.event_name == 'pull_request' && 'PR' || 'COMMIT' }}" >> $GITHUB_ENV
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
         with:
@@ -69,7 +74,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Log into GitHub Container Registry
-        if: github.ref == 'refs/heads/main' || github.event_name == 'release'
+        if: env.SHOULD_PUSH == 'true'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -86,6 +91,10 @@ jobs:
             type=sha,format=short
             # Add 'latest' tag for main branch
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            # Add PR tag for pull requests
+            type=ref,event=pr
+            # Add branch tag
+            type=ref,event=branch
             # Add semver tags for releases
             type=semver,pattern={{version}},enable=${{ github.event_name == 'release' }}
             type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'release' }}
