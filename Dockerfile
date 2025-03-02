@@ -27,12 +27,6 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# # Install Python dependencies
-# RUN pip install --no-cache-dir \
-#     pythonping \
-#     requests \
-#     slack-sdk
-
 # Copy the Python application
 COPY pingpanda.py .
 
