@@ -1,21 +1,39 @@
-FROM alpine:latest
+FROM python:alpine
 
 LABEL org.opencontainers.image.source="https://github.com/KingPin/PingPanda"
 LABEL org.opencontainers.image.authors="KingPin"
-LABEL org.opencontainers.image.description="A simple container that pings a list of hosts, ips, and checks DNS, SSL expiry and logs the results"
+LABEL org.opencontainers.image.description="A Python-based network monitoring tool that checks ping, DNS resolution, website availability, and SSL certificate expiry"
 LABEL org.opencontainers.image.url="https://github.com/KingPin/PingPanda/pkgs/container/pingpanda"
 
-# Install necessary packages
-RUN apk add --no-cache bash bind-tools iputils curl openssl
-
-# Copy the script into the container
-COPY pingpanda.sh /usr/local/bin/pingpanda.sh
-
-# Make the script executable
-RUN chmod +x /usr/local/bin/pingpanda.sh
+# Install system dependencies (needed for both runtime and building some Python packages)
+RUN apk add --no-cache \
+    bind-tools \
+    iputils \
+    curl \
+    openssl \
+    gcc \
+    musl-dev \
+    python3-dev \
+    libffi-dev \
+    openssl-dev
 
 # Create the logs directory
 RUN mkdir -p /logs
 
-# Set the entrypoint to the script
-ENTRYPOINT ["/usr/local/bin/pingpanda.sh"]
+# Set working directory
+WORKDIR /app
+
+# Install Python dependencies
+RUN pip install --no-cache-dir \
+    pythonping \
+    requests \
+    slack-sdk
+
+# Copy the Python application
+COPY pingpanda.py .
+
+# Make the script executable
+RUN chmod +x pingpanda.py
+
+# Set the entrypoint to run the Python script
+ENTRYPOINT ["python", "/app/pingpanda.py"]
