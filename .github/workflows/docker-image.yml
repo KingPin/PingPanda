@@ -120,12 +120,17 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # Generate short SHA for use in Trivy scanner
+      - name: Get short SHA
+        id: sha
+        run: echo "SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_ENV
+
       - name: Run Trivy vulnerability scanner
         if: github.ref == 'refs/heads/main' || github.event_name == 'release'
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: image
-          image-ref: ghcr.io/${{ env.REPO_OWNER }}/pingpanda:sha-${{ github.sha }}
+          image-ref: ghcr.io/${{ env.REPO_OWNER }}/pingpanda:sha-${{ env.SHORT_SHA }}
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'MEDIUM,CRITICAL,HIGH'
