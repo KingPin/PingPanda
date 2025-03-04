@@ -40,6 +40,10 @@ services:
       - DISCORD_WEBHOOK_URL=
       - ALERT_THRESHOLD=3
       - NOTIFY_RECOVERY=true
+
+      # Prometheus settings
+      - ENABLE_PROMETHEUS=true
+      - PROMETHEUS_PORT=9090
     volumes:
       - ./logs:/logs
     restart: unless-stopped

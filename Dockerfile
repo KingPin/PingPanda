@@ -33,5 +33,8 @@ COPY pingpanda.py .
 # Make the script executable
 RUN chmod +x pingpanda.py
 
+# Add to your Dockerfile
+EXPOSE 9090
+
 # Set the entrypoint to run the Python script
 ENTRYPOINT ["python", "/app/pingpanda.py"]

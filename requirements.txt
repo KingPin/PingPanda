@@ -1,3 +1,4 @@
 pythonping>=1.1.4
 requests>=2.32.3
 slack-sdk>=3.34.0
+prometheus-client>=0.17.0

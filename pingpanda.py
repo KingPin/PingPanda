@@ -13,6 +13,7 @@ from typing import Dict, List, Optional, Union
 import pythonping
 import requests
 from slack_sdk import WebClient
+from prometheus_client import start_http_server, Gauge, Counter, Summary
 
 
 class PingPanda:
@@ -27,6 +28,7 @@ class PingPanda:
         self._setup_logging()
         self._load_config()
         self._initialize_status_tracking()
+        self._setup_prometheus()  # Add this line
         self.logger.info(f"PingPanda started on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         
     def _setup_logging(self):
@@ -85,6 +87,39 @@ class PingPanda:
         
         # Initialize Slack client if webhook URL is provided
         self.slack_client = WebClient(token=self.slack_webhook_url) if self.slack_webhook_url else None
+        
+        # Add Prometheus configuration
+        self.enable_prometheus = self.config.get("ENABLE_PROMETHEUS", "false").lower() == "true"
+        self.prometheus_port = int(self.config.get("PROMETHEUS_PORT", "9090"))
+    
+    def _setup_prometheus(self):
+        """Initialize Prometheus metrics if enabled."""
+        if not self.enable_prometheus:
+            return
+            
+        # Status metrics (1=OK, 0=Error)
+        self.dns_status = Gauge('pingpanda_dns_status', 'DNS resolution status', ['domain'])
+        self.ping_status = Gauge('pingpanda_ping_status', 'Ping status', ['target'])
+        self.website_status = Gauge('pingpanda_website_status', 'Website check status', ['url'])
+        self.ssl_status = Gauge('pingpanda_ssl_status', 'SSL certificate status', ['domain'])
+        
+        # Response time metrics
+        self.dns_response_time = Summary('pingpanda_dns_response_seconds', 'DNS resolution time', ['domain'])
+        self.ping_response_time = Summary('pingpanda_ping_response_seconds', 'Ping response time', ['target'])
+        self.website_response_time = Summary('pingpanda_website_response_seconds', 'Website response time', ['url'])
+        
+        # SSL specific metrics
+        self.ssl_days_remaining = Gauge('pingpanda_ssl_days_remaining', 'Days until SSL certificate expiry', ['domain'])
+        
+        # Error counters
+        self.dns_errors = Counter('pingpanda_dns_errors_total', 'Total DNS resolution errors', ['domain'])
+        self.ping_errors = Counter('pingpanda_ping_errors_total', 'Total ping errors', ['target'])
+        self.website_errors = Counter('pingpanda_website_errors_total', 'Total website check errors', ['url'])
+        self.ssl_errors = Counter('pingpanda_ssl_errors_total', 'Total SSL check errors', ['domain'])
+        
+        # Start the HTTP server
+        start_http_server(self.prometheus_port)
+        self.logger.info(f"Prometheus metrics server started on port {self.prometheus_port}")
     
     def _initialize_status_tracking(self):
         """Initialize status tracking for alert thresholds and recovery notifications."""
@@ -218,10 +253,18 @@ class PingPanda:
                 try:
                     socket.gethostbyname(domain)
                     end_time = time.perf_counter()
-                    duration = (end_time - start_time) * 1000  # Convert to milliseconds
-                    self.logger.info(f"DNS Resolution for {domain}: PASS (Time: {duration:.2f}ms)")
+                    duration = end_time - start_time  # In seconds for Prometheus
+                    duration_ms = duration * 1000     # In milliseconds for logging
+                    
+                    self.logger.info(f"DNS Resolution for {domain}: PASS (Time: {duration_ms:.2f}ms)")
+                    
+                    # Update Prometheus metrics
+                    if self.enable_prometheus:
+                        self.dns_status.labels(domain=domain).set(1)  # 1 = OK
+                        self.dns_response_time.labels(domain=domain).observe(duration)
+                    
                     self.send_notification(
-                        f"DNS resolution successful in {duration:.2f}ms",
+                        f"DNS resolution successful in {duration_ms:.2f}ms",
                         status="ok",
                         check_type="DNS",
                         target=domain
@@ -235,6 +278,12 @@ class PingPanda:
                     
             if not success:
                 self.logger.error(f"DNS Resolution for {domain}: FAIL")
+                
+                # Update Prometheus metrics for failure
+                if self.enable_prometheus:
+                    self.dns_status.labels(domain=domain).set(0)  # 0 = ERROR
+                    self.dns_errors.labels(domain=domain).inc()
+                    
                 self.send_notification(
                     f"Failed to resolve domain after {self.retry_count} attempts",
                     status="error",
@@ -345,6 +394,10 @@ class PingPanda:
                             cert["notAfter"], "%b %d %H:%M:%S %Y %Z"
                         )
                         days_left = (expiry_date - datetime.now()).days
+                        
+                        # Update Prometheus metrics
+                        if self.enable_prometheus:
+                            self.ssl_days_remaining.labels(domain=domain).set(days_left)
                         
                         if days_left <= self.ssl_critical_days:
                             self.logger.error(
