@@ -33,9 +33,9 @@ class PingPanda:
         
     def _setup_logging(self):
         """Configure logging with console and file handlers if enabled."""
-        log_level = getattr(logging, self.config.get("LOG_LEVEL", "INFO").upper())
-        log_dir = self.config.get("LOG_DIR", "/logs")
-        log_file = os.path.join(log_dir, self.config.get("LOG_FILE", "pingpanda.log"))
+        log_level = getattr(logging, str(self.config.get("LOG_LEVEL", "INFO")).upper())
+        log_dir = str(self.config.get("LOG_DIR", "/logs"))
+        log_file = os.path.join(log_dir, str(self.config.get("LOG_FILE", "pingpanda.log")))
         max_log_size = int(self.config.get("MAX_LOG_SIZE", 1048576))  # 1MB default
         log_backup_count = int(self.config.get("LOG_BACKUP_COUNT", 5))
         
@@ -47,12 +47,12 @@ class PingPanda:
         
         formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
         
-        if self.config.get("LOG_TO_TERMINAL", "true").lower() == "true":
+        if str(self.config.get("LOG_TO_TERMINAL", "true")).lower() == "true":
             console_handler = logging.StreamHandler()
             console_handler.setFormatter(formatter)
             self.logger.addHandler(console_handler)
         
-        if self.config.get("LOG_TO_FILE", "true").lower() == "true":
+        if str(self.config.get("LOG_TO_FILE", "true")).lower() == "true":
             file_handler = RotatingFileHandler(
                 log_file, maxBytes=max_log_size, backupCount=log_backup_count
             )
@@ -62,23 +62,27 @@ class PingPanda:
     def _load_config(self):
         """Load configuration from environment variables with defaults."""
         self.interval = int(self.config.get("INTERVAL", 15))
-        self.verbose = self.config.get("VERBOSE", "false").lower() == "true"
+        self.verbose = str(self.config.get("VERBOSE", "false")).lower() == "true"
         self.retry_count = int(self.config.get("RETRY_COUNT", 3))
         self.success_http_codes = [
-            int(code) for code in self.config.get("SUCCESS_HTTP_CODES", "200").split(",")
+            int(code) for code in str(self.config.get("SUCCESS_HTTP_CODES", "200")).split(",")
         ]
         self.alert_threshold = int(self.config.get("ALERT_THRESHOLD", 3))
-        self.domains = self.config.get("DOMAINS", "google.com").split(",")
-        self.ping_ips = self.config.get("PING_IPS", "1.1.1.1").split(",")
-        self.websites = self.config.get("CHECK_WEBSITE", "").split(",") if self.config.get("CHECK_WEBSITE") else []
-        self.enable_website_check = self.config.get("ENABLE_WEBSITE_CHECK", "false").lower() == "true"
-        self.ssl_check_domains = self.config.get("SSL_CHECK_DOMAINS", "google.com").split(",")
-        self.enable_ssl_check = self.config.get("ENABLE_SSL_CHECK", "false").lower() == "true"
-        self.enable_ping = self.config.get("ENABLE_PING", "true").lower() == "true"
-        self.enable_dns = self.config.get("ENABLE_DNS", "true").lower() == "true"
+        self.domains = str(self.config.get("DOMAINS", "google.com")).split(",")
+        self.ping_ips = str(self.config.get("PING_IPS", "1.1.1.1")).split(",")
+        self.websites = str(self.config.get("CHECK_WEBSITE", "")).split(",") if self.config.get("CHECK_WEBSITE") else []
+        self.enable_website_check = str(self.config.get("ENABLE_WEBSITE_CHECK", "false")).lower() == "true"
+        self.ssl_check_domains = str(self.config.get("SSL_CHECK_DOMAINS", "google.com")).split(",")
+        self.enable_ssl_check = str(self.config.get("ENABLE_SSL_CHECK", "false")).lower() == "true"
+        self.enable_ping = str(self.config.get("ENABLE_PING", "true")).lower() == "true"
+        self.enable_dns = str(self.config.get("ENABLE_DNS", "true")).lower() == "true"
         self.ssl_warn_days = int(self.config.get("SSL_WARN_DAYS", 30))
         self.ssl_critical_days = int(self.config.get("SSL_CRITICAL_DAYS", 7))
-        self.notify_recovery = self.config.get("NOTIFY_RECOVERY", "true").lower() == "true"
+        self.notify_recovery = str(self.config.get("NOTIFY_RECOVERY", "true")).lower() == "true"
+        
+        # Filtering options
+        self.show_only_success = str(self.config.get("SHOW_ONLY_SUCCESS", "false")).lower() == "true"
+        self.show_only_failure = str(self.config.get("SHOW_ONLY_FAILURE", "false")).lower() == "true"
         
         # Notification settings
         self.slack_webhook_url = self.config.get("SLACK_WEBHOOK_URL")
@@ -89,7 +93,7 @@ class PingPanda:
         self.slack_client = WebClient(token=self.slack_webhook_url) if self.slack_webhook_url else None
         
         # Add Prometheus configuration
-        self.enable_prometheus = self.config.get("ENABLE_PROMETHEUS", "false").lower() == "true"
+        self.enable_prometheus = str(self.config.get("ENABLE_PROMETHEUS", "false")).lower() == "true"
         self.prometheus_port = int(self.config.get("PROMETHEUS_PORT", "9090"))
     
     def _setup_prometheus(self):
@@ -123,7 +127,7 @@ class PingPanda:
     
     def _initialize_status_tracking(self):
         """Initialize status tracking for alert thresholds and recovery notifications."""
-        self.status_dir = os.path.join(self.config.get("LOG_DIR", "/logs"), "status")
+        self.status_dir = os.path.join(str(self.config.get("LOG_DIR", "/logs")), "status")
         os.makedirs(self.status_dir, exist_ok=True)
         self.failure_counts = {}
         
@@ -169,6 +173,35 @@ class PingPanda:
             return should_notify
             
         return False
+
+    def _should_log_result(self, is_success: bool) -> bool:
+        """
+        Determine if a result should be logged based on filtering configuration.
+        
+        Args:
+            is_success: True if the check was successful, False if it failed
+            
+        Returns:
+            bool: True if the result should be logged, False otherwise
+        """
+        # If both filters are disabled, show everything
+        if not self.show_only_success and not self.show_only_failure:
+            return True
+            
+        # If only success filter is enabled, show only successes
+        if self.show_only_success and not self.show_only_failure:
+            return is_success
+            
+        # If only failure filter is enabled, show only failures
+        if self.show_only_failure and not self.show_only_success:
+            return not is_success
+            
+        # If both filters are enabled, show nothing (conflicting filters)
+        if self.show_only_success and self.show_only_failure:
+            self.logger.warning("Both SHOW_ONLY_SUCCESS and SHOW_ONLY_FAILURE are enabled. No results will be displayed.")
+            return False
+            
+        return True
 
     def send_notification(self, message: str, status: str = "error", check_type: str = "general", target: str = "unknown"):
         """
@@ -256,7 +289,8 @@ class PingPanda:
                     duration = end_time - start_time  # In seconds for Prometheus
                     duration_ms = duration * 1000     # In milliseconds for logging
                     
-                    self.logger.info(f"DNS Resolution for {domain}: PASS (Time: {duration_ms:.2f}ms)")
+                    if self._should_log_result(True):
+                        self.logger.info(f"DNS Resolution for {domain}: PASS (Time: {duration_ms:.2f}ms)")
                     
                     # Update Prometheus metrics
                     if self.enable_prometheus:
@@ -277,7 +311,8 @@ class PingPanda:
                     time.sleep(1)
                     
             if not success:
-                self.logger.error(f"DNS Resolution for {domain}: FAIL")
+                if self._should_log_result(False):
+                    self.logger.error(f"DNS Resolution for {domain}: FAIL")
                 
                 # Update Prometheus metrics for failure
                 if self.enable_prometheus:
@@ -307,7 +342,16 @@ class PingPanda:
                     if response_list.success():
                         end_time = time.perf_counter()
                         duration = (end_time - start_time) * 1000
-                        self.logger.info(f"Ping to {ip}: PASS (Time: {response_list.rtt_avg_ms:.2f}ms)")
+                        duration_seconds = (end_time - start_time)  # For Prometheus
+                        
+                        if self._should_log_result(True):
+                            self.logger.info(f"Ping to {ip}: PASS (Time: {response_list.rtt_avg_ms:.2f}ms)")
+                        
+                        # Update Prometheus metrics
+                        if self.enable_prometheus:
+                            self.ping_status.labels(target=ip).set(1)  # 1 = OK
+                            self.ping_response_time.labels(target=ip).observe(duration_seconds)
+                        
                         self.send_notification(
                             f"Ping successful in {response_list.rtt_avg_ms:.2f}ms",
                             status="ok",
@@ -325,7 +369,14 @@ class PingPanda:
                     time.sleep(1)
                     
             if not success:
-                self.logger.error(f"Ping to {ip}: FAIL")
+                if self._should_log_result(False):
+                    self.logger.error(f"Ping to {ip}: FAIL")
+                
+                # Update Prometheus metrics for failure
+                if self.enable_prometheus:
+                    self.ping_status.labels(target=ip).set(0)  # 0 = ERROR
+                    self.ping_errors.labels(target=ip).inc()
+                
                 self.send_notification(
                     f"Failed to ping host after {self.retry_count} attempts",
                     status="error",
@@ -350,9 +401,16 @@ class PingPanda:
                 duration = (end_time - start_time) * 1000  # Convert to milliseconds
                 
                 if response.status_code in self.success_http_codes:
-                    self.logger.info(
-                        f"Website check for {website}: PASS (HTTP Status: {response.status_code}, Time: {duration:.2f}ms)"
-                    )
+                    if self._should_log_result(True):
+                        self.logger.info(
+                            f"Website check for {website}: PASS (HTTP Status: {response.status_code}, Time: {duration:.2f}ms)"
+                        )
+                    
+                    # Update Prometheus metrics
+                    if self.enable_prometheus:
+                        self.website_status.labels(url=website).set(1)  # 1 = OK
+                        self.website_response_time.labels(url=website).observe(duration / 1000)  # Convert to seconds
+                    
                     self.send_notification(
                         f"Website check successful (HTTP {response.status_code}, {duration:.2f}ms)",
                         status="ok",
@@ -360,9 +418,16 @@ class PingPanda:
                         target=website
                     )
                 else:
-                    self.logger.error(
-                        f"Website check for {website}: FAIL (HTTP Status: {response.status_code}, Time: {duration:.2f}ms)"
-                    )
+                    if self._should_log_result(False):
+                        self.logger.error(
+                            f"Website check for {website}: FAIL (HTTP Status: {response.status_code}, Time: {duration:.2f}ms)"
+                        )
+                    
+                    # Update Prometheus metrics for failure
+                    if self.enable_prometheus:
+                        self.website_status.labels(url=website).set(0)  # 0 = ERROR
+                        self.website_errors.labels(url=website).inc()
+                    
                     self.send_notification(
                         f"Website check failed with HTTP status {response.status_code} ({duration:.2f}ms)",
                         status="error",
@@ -370,7 +435,14 @@ class PingPanda:
                         target=website
                     )
             except requests.exceptions.RequestException as e:
-                self.logger.error(f"Website check for {website}: FAIL - {e}")
+                if self._should_log_result(False):
+                    self.logger.error(f"Website check for {website}: FAIL - {e}")
+                
+                # Update Prometheus metrics for exception
+                if self.enable_prometheus:
+                    self.website_status.labels(url=website).set(0)  # 0 = ERROR
+                    self.website_errors.labels(url=website).inc()
+                
                 self.send_notification(
                     f"Website connection failed: {e}",
                     status="error",
@@ -400,9 +472,15 @@ class PingPanda:
                             self.ssl_days_remaining.labels(domain=domain).set(days_left)
                         
                         if days_left <= self.ssl_critical_days:
-                            self.logger.error(
-                                f"SSL certificate for {domain} critically expiring in {days_left} days"
-                            )
+                            # Update Prometheus metrics for critical SSL
+                            if self.enable_prometheus:
+                                self.ssl_status.labels(domain=domain).set(0)  # 0 = ERROR
+                                self.ssl_errors.labels(domain=domain).inc()
+                            
+                            if self._should_log_result(False):
+                                self.logger.error(
+                                    f"SSL certificate for {domain} critically expiring in {days_left} days"
+                                )
                             self.send_notification(
                                 f"SSL certificate critically expiring in {days_left} days",
                                 status="error",
@@ -410,9 +488,15 @@ class PingPanda:
                                 target=domain
                             )
                         elif days_left <= self.ssl_warn_days:
-                            self.logger.warning(
-                                f"SSL certificate for {domain} expiring soon in {days_left} days"
-                            )
+                            # Update Prometheus metrics for warning SSL
+                            if self.enable_prometheus:
+                                self.ssl_status.labels(domain=domain).set(0)  # 0 = ERROR (warning is still an issue)
+                                self.ssl_errors.labels(domain=domain).inc()
+                            
+                            if self._should_log_result(False):
+                                self.logger.warning(
+                                    f"SSL certificate for {domain} expiring soon in {days_left} days"
+                                )
                             self.send_notification(
                                 f"SSL certificate expiring soon in {days_left} days",
                                 status="error",
@@ -420,9 +504,14 @@ class PingPanda:
                                 target=domain
                             )
                         else:
-                            self.logger.info(
-                                f"SSL certificate for {domain} is valid for {days_left} more days"
-                            )
+                            # Update Prometheus metrics for valid SSL
+                            if self.enable_prometheus:
+                                self.ssl_status.labels(domain=domain).set(1)  # 1 = OK
+                            
+                            if self._should_log_result(True):
+                                self.logger.info(
+                                    f"SSL certificate for {domain} is valid for {days_left} more days"
+                                )
                             self.send_notification(
                                 f"SSL certificate valid for {days_left} more days",
                                 status="ok",
@@ -430,7 +519,13 @@ class PingPanda:
                                 target=domain
                             )
             except Exception as e:
-                self.logger.error(f"SSL certificate check for {domain}: FAIL - {e}")
+                # Update Prometheus metrics for SSL exception
+                if self.enable_prometheus:
+                    self.ssl_status.labels(domain=domain).set(0)  # 0 = ERROR
+                    self.ssl_errors.labels(domain=domain).inc()
+                
+                if self._should_log_result(False):
+                    self.logger.error(f"SSL certificate check for {domain}: FAIL - {e}")
                 self.send_notification(
                     f"SSL certificate check failed: {e}",
                     status="error",
@@ -456,6 +551,17 @@ class PingPanda:
         self.logger.info(f"Active checks: {len(checks)}")
         for check in checks:
             self.logger.info(f"  - {check}")
+        
+        # Show filtering status
+        if self.show_only_success:
+            self.logger.info("Filtering: Showing only SUCCESSFUL results")
+        elif self.show_only_failure:
+            self.logger.info("Filtering: Showing only FAILED results")
+        elif self.show_only_success and self.show_only_failure:
+            self.logger.warning("Filtering: Both success and failure filters enabled - no results will be shown")
+        else:
+            self.logger.info("Filtering: Showing ALL results")
+            
         self.logger.info("===============================")
 
     def run(self):
@@ -494,6 +600,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description="PingPanda - Network Monitoring Tool")
     parser.add_argument("-c", "--config", help="Path to config file")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
+    parser.add_argument("--show-only-success", action="store_true", help="Show only successful check results")
+    parser.add_argument("--show-only-failure", action="store_true", help="Show only failed check results")
     parser.add_argument("--version", action="version", version="PingPanda v1.1.0")
     return parser.parse_args()
 
@@ -508,6 +616,10 @@ def main():
     # Override with command line arguments
     if args.verbose:
         config["VERBOSE"] = "true"
+    if args.show_only_success:
+        config["SHOW_ONLY_SUCCESS"] = "true"
+    if args.show_only_failure:
+        config["SHOW_ONLY_FAILURE"] = "true"
         
     # Initialize and run PingPanda
     monitor = PingPanda(config)
