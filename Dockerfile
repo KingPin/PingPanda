@@ -17,8 +17,8 @@ RUN apk add --no-cache \
     libffi-dev \
     openssl-dev
 
-# Create the logs directory
-RUN mkdir -p /logs
+# Create the logs directory and stats directory for advanced statistics
+RUN mkdir -p /logs /stats
 
 # Set working directory
 WORKDIR /app

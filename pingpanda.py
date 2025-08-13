@@ -1,19 +1,244 @@
 import argparse
+import csv
+import json
 import logging
 import os
+import pickle
 import socket
 import ssl
 import time
-from datetime import datetime
+from collections import deque
+from datetime import datetime, timedelta
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from threading import Thread
-from typing import Dict, List, Optional, Union
+from threading import Thread, Lock
+from typing import Dict, List, Optional, Union, Any
 
 import pythonping
 import requests
 from slack_sdk import WebClient
 from prometheus_client import start_http_server, Gauge, Counter, Summary
+
+
+class IPStats:
+    """Track statistics for a single IP address."""
+    
+    def __init__(self, ip: str):
+        self.ip = ip
+        self.current_status = "unknown"  # "up", "down", "unknown"
+        self.total_uptime = 0.0  # seconds
+        self.total_downtime = 0.0  # seconds
+        self.downtime_events = 0
+        self.last_status_change = datetime.now()
+        self.downtime_periods: List[Dict[str, datetime]] = []  # [{"start": datetime, "end": datetime}]
+        self.status_change_times = deque(maxlen=20)  # For flapping detection
+        self.is_flapping = False
+        self.last_check_time = datetime.now()
+        self._status_start_time = datetime.now()
+        
+    def update_status(self, new_status: str, timestamp: Optional[datetime] = None) -> bool:
+        """
+        Update the status and calculate uptime/downtime.
+        
+        Returns:
+            bool: True if status changed, False otherwise
+        """
+        if timestamp is None:
+            timestamp = datetime.now()
+            
+        # Calculate time since last update
+        time_delta = (timestamp - self.last_check_time).total_seconds()
+        
+        # Add time to current status
+        if self.current_status == "up":
+            self.total_uptime += time_delta
+        elif self.current_status == "down":
+            self.total_downtime += time_delta
+            
+        self.last_check_time = timestamp
+        
+        # Check if status changed
+        status_changed = self.current_status != new_status
+        
+        if status_changed:
+            # Handle downtime period tracking
+            if self.current_status == "down" and new_status == "up":
+                # End of downtime period
+                if self.downtime_periods and "end" not in self.downtime_periods[-1]:
+                    self.downtime_periods[-1]["end"] = timestamp
+            elif self.current_status == "up" and new_status == "down":
+                # Start of downtime period
+                self.downtime_events += 1
+                self.downtime_periods.append({"start": timestamp})
+                
+            # Update status change tracking
+            self.last_status_change = timestamp
+            self.status_change_times.append(timestamp)
+            self.current_status = new_status
+            self._status_start_time = timestamp
+            
+        return status_changed
+        
+    def check_flapping(self, threshold: int, window_seconds: int) -> bool:
+        """
+        Check if the IP is flapping (too many status changes in time window).
+        
+        Args:
+            threshold: Maximum number of status changes allowed
+            window_seconds: Time window in seconds
+            
+        Returns:
+            bool: True if flapping detected
+        """
+        if len(self.status_change_times) < threshold:
+            return False
+            
+        now = datetime.now()
+        window_start = now - timedelta(seconds=window_seconds)
+        
+        # Count status changes within the window
+        recent_changes = [t for t in self.status_change_times if t >= window_start]
+        
+        self.is_flapping = len(recent_changes) >= threshold
+        return self.is_flapping
+        
+    def get_current_status_duration(self) -> float:
+        """Get duration in seconds of current status."""
+        return (datetime.now() - self._status_start_time).total_seconds()
+        
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert stats to dictionary for serialization."""
+        return {
+            "ip": self.ip,
+            "current_status": self.current_status,
+            "total_uptime": self.total_uptime,
+            "total_downtime": self.total_downtime,
+            "downtime_events": self.downtime_events,
+            "last_status_change": self.last_status_change.isoformat(),
+            "downtime_periods": [
+                {
+                    "start": period["start"].isoformat(),
+                    "end": period["end"].isoformat() if "end" in period else None
+                }
+                for period in self.downtime_periods
+            ],
+            "is_flapping": self.is_flapping,
+            "current_status_duration": self.get_current_status_duration()
+        }
+        
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'IPStats':
+        """Create IPStats from dictionary."""
+        stats = cls(data["ip"])
+        stats.current_status = data["current_status"]
+        stats.total_uptime = data["total_uptime"]
+        stats.total_downtime = data["total_downtime"]
+        stats.downtime_events = data["downtime_events"]
+        stats.last_status_change = datetime.fromisoformat(data["last_status_change"])
+        stats.is_flapping = data.get("is_flapping", False)
+        
+        # Reconstruct downtime periods
+        stats.downtime_periods = []
+        for period in data.get("downtime_periods", []):
+            p = {"start": datetime.fromisoformat(period["start"])}
+            if period["end"]:
+                p["end"] = datetime.fromisoformat(period["end"])
+            stats.downtime_periods.append(p)
+            
+        return stats
+
+
+class StatsLogger:
+    """Handle logging of statistics in CSV or JSON format."""
+    
+    def __init__(self, log_file: str, format_type: str = "csv", max_size: int = 1048576, backup_count: int = 5):
+        self.log_file = log_file
+        self.format_type = format_type.lower()
+        
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(log_file), exist_ok=True)
+        
+        # Setup rotating file handler
+        self.handler = RotatingFileHandler(
+            log_file, 
+            maxBytes=max_size, 
+            backupCount=backup_count
+        )
+        
+        # Write CSV header if file is new and format is CSV
+        if self.format_type == "csv" and not os.path.exists(log_file):
+            self._write_csv_header()
+            
+    def _write_csv_header(self):
+        """Write CSV header row."""
+        header = [
+            "timestamp", "ip", "current_status", "total_uptime", "total_downtime",
+            "downtime_events", "last_status_change", "current_status_duration",
+            "is_flapping"
+        ]
+        with open(self.log_file, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(header)
+            
+    def log_stats(self, ip_stats: Dict[str, IPStats], overall_stats: Dict[str, Any]):
+        """Log statistics to file."""
+        timestamp = datetime.now().isoformat()
+        
+        if self.format_type == "csv":
+            self._log_csv(timestamp, ip_stats, overall_stats)
+        else:
+            self._log_json(timestamp, ip_stats, overall_stats)
+            
+    def _log_csv(self, timestamp: str, ip_stats: Dict[str, IPStats], overall_stats: Dict[str, Any]):
+        """Log in CSV format."""
+        # Use file rotation
+        if os.path.getsize(self.log_file) > self.handler.maxBytes:
+            self.handler.doRollover()
+            
+        with open(self.log_file, 'a', newline='') as f:
+            writer = csv.writer(f)
+            
+            # Write IP stats
+            for stats in ip_stats.values():
+                writer.writerow([
+                    timestamp,
+                    stats.ip,
+                    stats.current_status,
+                    f"{stats.total_uptime:.2f}",
+                    f"{stats.total_downtime:.2f}",
+                    stats.downtime_events,
+                    stats.last_status_change.isoformat(),
+                    f"{stats.get_current_status_duration():.2f}",
+                    stats.is_flapping
+                ])
+                
+            # Write overall stats
+            writer.writerow([
+                timestamp,
+                "OVERALL",
+                "summary",
+                f"{overall_stats['total_uptime']:.2f}",
+                f"{overall_stats['total_downtime']:.2f}",
+                overall_stats['total_downtime_events'],
+                "",
+                "",
+                overall_stats['total_flapping_ips']
+            ])
+            
+    def _log_json(self, timestamp: str, ip_stats: Dict[str, IPStats], overall_stats: Dict[str, Any]):
+        """Log in JSON format."""
+        # Use file rotation
+        if os.path.getsize(self.log_file) > self.handler.maxBytes:
+            self.handler.doRollover()
+            
+        log_entry = {
+            "timestamp": timestamp,
+            "ip_stats": {ip: stats.to_dict() for ip, stats in ip_stats.items()},
+            "overall_stats": overall_stats
+        }
+        
+        with open(self.log_file, 'a') as f:
+            f.write(json.dumps(log_entry) + '\n')
 
 
 class PingPanda:
@@ -84,6 +309,16 @@ class PingPanda:
         self.show_only_success = str(self.config.get("SHOW_ONLY_SUCCESS", "false")).lower() == "true"
         self.show_only_failure = str(self.config.get("SHOW_ONLY_FAILURE", "false")).lower() == "true"
         
+        # Stats tracking configuration
+        self.summary_interval = int(self.config.get("SUMMARY_INTERVAL_SECONDS", 120))
+        self.store_stats_log = str(self.config.get("STORE_STATS_LOG", "false")).lower() == "true"
+        self.stats_log_format = str(self.config.get("STATS_LOG_FORMAT", "csv")).lower()
+        self.stats_log_max_size = int(self.config.get("STATS_LOG_MAX_SIZE", 1048576))  # 1MB
+        self.stats_log_backup_count = int(self.config.get("STATS_LOG_BACKUP_COUNT", 5))
+        self.persist_stats = str(self.config.get("PERSIST_STATS", "false")).lower() == "true"
+        self.flap_threshold = int(self.config.get("FLAP_THRESHOLD", 5))
+        self.flap_window_seconds = int(self.config.get("FLAP_WINDOW_SECONDS", 300))  # 5 minutes
+        
         # Notification settings
         self.slack_webhook_url = self.config.get("SLACK_WEBHOOK_URL")
         self.teams_webhook_url = self.config.get("TEAMS_WEBHOOK_URL")
@@ -131,6 +366,32 @@ class PingPanda:
         os.makedirs(self.status_dir, exist_ok=True)
         self.failure_counts = {}
         
+        # Initialize IP stats tracking
+        self.ip_stats: Dict[str, IPStats] = {}
+        self.stats_lock = Lock()  # Thread safety for stats updates
+        self.last_summary_time = datetime.now()
+        
+        # Setup stats logger if enabled
+        if self.store_stats_log:
+            stats_log_file = os.path.join(str(self.config.get("LOG_DIR", "/logs")), "ping_stats.log")
+            self.stats_logger = StatsLogger(
+                stats_log_file,
+                self.stats_log_format,
+                self.stats_log_max_size,
+                self.stats_log_backup_count
+            )
+        else:
+            self.stats_logger = None
+            
+        # Load persisted stats if enabled
+        if self.persist_stats:
+            self._load_persisted_stats()
+            
+        # Initialize IP stats for all ping targets
+        for ip in self.ping_ips:
+            if ip not in self.ip_stats:
+                self.ip_stats[ip] = IPStats(ip)
+        
     def _update_status_tracking(self, check_type: str, target: str, status: str) -> bool:
         """
         Update status tracking for a check and determine if notification is needed.
@@ -173,6 +434,64 @@ class PingPanda:
             return should_notify
             
         return False
+
+    def _load_persisted_stats(self):
+        """Load persisted IP stats from file."""
+        stats_file = os.path.join(self.status_dir, "ip_stats.pkl")
+        if os.path.exists(stats_file):
+            try:
+                with open(stats_file, 'rb') as f:
+                    saved_stats = pickle.load(f)
+                    for ip, stats_data in saved_stats.items():
+                        self.ip_stats[ip] = IPStats.from_dict(stats_data)
+                self.logger.info(f"Loaded persisted stats for {len(self.ip_stats)} IPs")
+            except Exception as e:
+                self.logger.warning(f"Failed to load persisted stats: {e}")
+                
+    def _save_persisted_stats(self):
+        """Save IP stats to file."""
+        if not self.persist_stats:
+            return
+            
+        stats_file = os.path.join(self.status_dir, "ip_stats.pkl")
+        try:
+            stats_data = {ip: stats.to_dict() for ip, stats in self.ip_stats.items()}
+            with open(stats_file, 'wb') as f:
+                pickle.dump(stats_data, f)
+        except Exception as e:
+            self.logger.error(f"Failed to save persisted stats: {e}")
+            
+    def _update_ip_stats(self, ip: str, success: bool):
+        """Update IP statistics with current check result."""
+        with self.stats_lock:
+            if ip not in self.ip_stats:
+                self.ip_stats[ip] = IPStats(ip)
+                
+            stats = self.ip_stats[ip]
+            new_status = "up" if success else "down"
+            status_changed = stats.update_status(new_status)
+            
+            # Check for flapping
+            if status_changed:
+                was_flapping = stats.is_flapping
+                is_flapping = stats.check_flapping(self.flap_threshold, self.flap_window_seconds)
+                
+                if is_flapping and not was_flapping:
+                    self.logger.warning(f"Flapping detected for IP {ip}")
+                    self.send_notification(
+                        f"IP {ip} is flapping (>{self.flap_threshold} status changes in {self.flap_window_seconds}s)",
+                        status="error",
+                        check_type="Flapping",
+                        target=ip
+                    )
+                elif not is_flapping and was_flapping:
+                    self.logger.info(f"Flapping resolved for IP {ip}")
+                    
+                # Log status change
+                if success and not was_flapping:
+                    self.logger.info(f"IP {ip} recovered (was down for {stats.total_downtime:.1f}s)")
+                    
+            return status_changed
 
     def _should_log_result(self, is_success: bool) -> bool:
         """
@@ -352,6 +671,9 @@ class PingPanda:
                             self.ping_status.labels(target=ip).set(1)  # 1 = OK
                             self.ping_response_time.labels(target=ip).observe(duration_seconds)
                         
+                        # Update IP stats
+                        status_changed = self._update_ip_stats(ip, True)
+                        
                         self.send_notification(
                             f"Ping successful in {response_list.rtt_avg_ms:.2f}ms",
                             status="ok",
@@ -377,12 +699,130 @@ class PingPanda:
                     self.ping_status.labels(target=ip).set(0)  # 0 = ERROR
                     self.ping_errors.labels(target=ip).inc()
                 
+                # Update IP stats
+                status_changed = self._update_ip_stats(ip, False)
+                
                 self.send_notification(
                     f"Failed to ping host after {self.retry_count} attempts",
                     status="error",
                     check_type="Ping",
                     target=ip
                 )
+
+    def _get_overall_stats(self) -> Dict[str, Any]:
+        """Calculate overall statistics across all IPs."""
+        with self.stats_lock:
+            total_uptime = sum(stats.total_uptime for stats in self.ip_stats.values())
+            total_downtime = sum(stats.total_downtime for stats in self.ip_stats.values())
+            total_downtime_events = sum(stats.downtime_events for stats in self.ip_stats.values())
+            total_flapping_ips = sum(1 for stats in self.ip_stats.values() if stats.is_flapping)
+            total_ips = len(self.ip_stats)
+            ips_up = sum(1 for stats in self.ip_stats.values() if stats.current_status == "up")
+            ips_down = sum(1 for stats in self.ip_stats.values() if stats.current_status == "down")
+            
+            return {
+                "total_uptime": total_uptime,
+                "total_downtime": total_downtime,
+                "total_downtime_events": total_downtime_events,
+                "total_flapping_ips": total_flapping_ips,
+                "total_ips": total_ips,
+                "ips_up": ips_up,
+                "ips_down": ips_down,
+                "overall_availability": (total_uptime / (total_uptime + total_downtime)) * 100 if (total_uptime + total_downtime) > 0 else 100
+            }
+
+    def _output_stats_summary(self):
+        """Output a detailed statistics summary."""
+        with self.stats_lock:
+            self.logger.info("=== PingPanda IP Statistics Summary ===")
+            
+            overall_stats = self._get_overall_stats()
+            
+            # Overall statistics
+            self.logger.info(f"Overall Status: {overall_stats['ips_up']}/{overall_stats['total_ips']} IPs UP")
+            self.logger.info(f"Overall Availability: {overall_stats['overall_availability']:.2f}%")
+            self.logger.info(f"Total Uptime: {overall_stats['total_uptime']:.1f}s")
+            self.logger.info(f"Total Downtime: {overall_stats['total_downtime']:.1f}s")
+            self.logger.info(f"Total Downtime Events: {overall_stats['total_downtime_events']}")
+            if overall_stats['total_flapping_ips'] > 0:
+                self.logger.warning(f"Flapping IPs: {overall_stats['total_flapping_ips']}")
+            
+            self.logger.info("")
+            self.logger.info("Per-IP Statistics:")
+            
+            # Per-IP statistics
+            for ip, stats in sorted(self.ip_stats.items()):
+                status_emoji = "🟢" if stats.current_status == "up" else "🔴"
+                flap_indicator = " 🔄" if stats.is_flapping else ""
+                
+                availability = (stats.total_uptime / (stats.total_uptime + stats.total_downtime)) * 100 if (stats.total_uptime + stats.total_downtime) > 0 else 100
+                current_duration = stats.get_current_status_duration()
+                
+                self.logger.info(f"  {status_emoji} {ip} - {stats.current_status.upper()}{flap_indicator}")
+                self.logger.info(f"    Availability: {availability:.2f}% | Current Status: {current_duration:.1f}s")
+                self.logger.info(f"    Uptime: {stats.total_uptime:.1f}s | Downtime: {stats.total_downtime:.1f}s")
+                self.logger.info(f"    Downtime Events: {stats.downtime_events} | Last Change: {stats.last_status_change.strftime('%H:%M:%S')}")
+                
+                if stats.downtime_periods:
+                    recent_outages = stats.downtime_periods[-3:]  # Show last 3 outages
+                    self.logger.info(f"    Recent Outages: {len(recent_outages)} (showing last 3)")
+                    for i, period in enumerate(recent_outages):
+                        start = period["start"].strftime('%H:%M:%S')
+                        end = period["end"].strftime('%H:%M:%S') if "end" in period else "ongoing"
+                        duration = (period["end"] - period["start"]).total_seconds() if "end" in period else current_duration
+                        self.logger.info(f"      {i+1}. {start} - {end} ({duration:.1f}s)")
+            
+            self.logger.info("==========================================")
+            
+            # Log to stats file if enabled
+            if self.stats_logger:
+                self.stats_logger.log_stats(self.ip_stats, overall_stats)
+                
+            # Update last summary time
+            self.last_summary_time = datetime.now()
+
+    def _load_stats(self):
+        """Load statistics from persistent storage if enabled."""
+        if not self.config.get('enable_advanced_stats', False) or not self.config.get('persist_stats', False):
+            return
+            
+        stats_file = str(self.config.get('stats_persistence_file', 'pingpanda_stats.pkl'))
+        if os.path.exists(stats_file):
+            try:
+                with open(stats_file, 'rb') as f:
+                    loaded_data = pickle.load(f)
+                    
+                with self.stats_lock:
+                    self.ip_stats = loaded_data.get('ip_stats', {})
+                    
+                self.logger.info(f"Loaded statistics for {len(self.ip_stats)} IPs from {stats_file}")
+            except Exception as e:
+                self.logger.error(f"Failed to load stats from {stats_file}: {e}")
+
+    def _save_stats(self):
+        """Save statistics to persistent storage if enabled."""
+        if not self.config.get('enable_advanced_stats', False) or not self.config.get('persist_stats', False):
+            return
+            
+        stats_file = str(self.config.get('stats_persistence_file', 'pingpanda_stats.pkl'))
+        try:
+            with self.stats_lock:
+                data_to_save = {
+                    'ip_stats': self.ip_stats,
+                    'saved_at': datetime.now()
+                }
+                
+            with open(stats_file, 'wb') as f:
+                pickle.dump(data_to_save, f)
+                
+            self.logger.debug(f"Saved statistics to {stats_file}")
+        except Exception as e:
+            self.logger.error(f"Failed to save stats to {stats_file}: {e}")
+
+    def _cleanup(self):
+        """Cleanup and save stats before shutdown."""
+        self.logger.info("Performing cleanup...")
+        self._save_stats()
 
     def check_website(self):
         """Check website availability and response codes."""
@@ -568,8 +1008,25 @@ class PingPanda:
         """Run all checks based on configuration."""
         self.output_status_summary()
         
+        # Log advanced stats configuration if enabled
+        if self.config.get('enable_advanced_stats', False):
+            self.logger.info("Advanced statistics tracking: ENABLED")
+            summary_interval = int(self.config.get('summary_interval', 0))
+            if summary_interval > 0:
+                self.logger.info(f"Statistics summary interval: {summary_interval} seconds")
+            if self.config.get('enable_stats_logging', False):
+                self.logger.info(f"Statistics logging: ENABLED -> {self.config.get('stats_log_file', 'pingpanda_stats.csv')}")
+            flapping_threshold = int(self.config.get('flapping_threshold', 0))
+            if flapping_threshold > 0:
+                self.logger.info(f"Flapping detection threshold: {flapping_threshold} status changes")
+        
+        # Load existing stats
+        self._load_stats()
+        
         try:
             while True:
+                loop_start = time.time()
+                
                 # Run checks in parallel using threads
                 threads = []
                 if self.enable_dns:
@@ -589,10 +1046,21 @@ class PingPanda:
                 for thread in threads:
                     thread.join()
 
+                # Check if it's time for a summary (first run or interval passed)
+                current_time = datetime.now()
+                summary_interval = int(self.config.get('summary_interval', 0))
+                
+                if (self.config.get('enable_advanced_stats', False) and 
+                    summary_interval > 0 and 
+                    (self.last_summary_time is None or 
+                     (current_time - self.last_summary_time).total_seconds() >= summary_interval)):
+                    self._output_stats_summary()
+
                 time.sleep(self.interval)
                 
         except KeyboardInterrupt:
             self.logger.info("Shutting down gracefully...")
+            self._cleanup()
 
 
 def parse_args():

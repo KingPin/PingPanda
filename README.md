@@ -14,6 +14,12 @@ PingPanda is a versatile monitoring script that performs periodic checks for DNS
 - Parallel execution of checks using threads
 - Status tracking with threshold-based alerting
 - Recovery notifications
+- **🆕 Advanced ping statistics with per-IP tracking**
+- **🆕 Periodic statistics summaries with availability calculations**
+- **🆕 Statistics logging to CSV/JSON with rotation**
+- **🆕 Flapping detection for unstable connections**
+- **🆕 Statistics persistence across restarts**
+- **🆕 Filtering options to show only success/failure results**
 
 ## Prerequisites
 
@@ -77,6 +83,89 @@ PingPanda can be configured using environment variables. Below is a list of the 
 - **DISCORD_WEBHOOK_URL**: Discord webhook URL for notifications (default: empty)
 - **ALERT_THRESHOLD**: Number of consecutive failures before alerting (default: 3)
 - **NOTIFY_RECOVERY**: Whether to send notifications when services recover (default: true)
+
+### Advanced Statistics Configuration
+
+- **ENABLE_ADVANCED_STATS**: Enable detailed ping statistics tracking (default: false)
+- **SUMMARY_INTERVAL**: Interval in seconds for statistics summaries (default: 0 - disabled)
+- **ENABLE_STATS_LOGGING**: Enable logging statistics to file (default: false)
+- **STATS_LOG_FILE**: Path to statistics log file (default: pingpanda_stats.csv)
+- **STATS_LOG_FORMAT**: Format for stats logging - 'csv' or 'json' (default: csv)
+- **LOG_ROTATION_SIZE**: Size in bytes for stats log rotation (default: 10485760 - 10MB)
+- **FLAPPING_THRESHOLD**: Number of status changes to trigger flapping detection (default: 0 - disabled)
+- **FLAPPING_WINDOW**: Time window in seconds for flapping detection (default: 300)
+- **PERSIST_STATS**: Save statistics across restarts (default: false)
+- **STATS_PERSISTENCE_FILE**: File to store persistent statistics (default: pingpanda_stats.pkl)
+
+### Filtering Options
+
+- **SHOW_ONLY_SUCCESS**: Show only successful check results (default: false)
+- **SHOW_ONLY_FAILURE**: Show only failed check results (default: false)
+
+## Advanced Statistics Features
+
+PingPanda now includes comprehensive statistics tracking for ping checks with the following capabilities:
+
+### Per-IP Status Tracking
+- **Uptime/Downtime Tracking**: Tracks total uptime and downtime for each IP
+- **Status History**: Maintains detailed history of status changes
+- **Availability Calculations**: Calculates percentage availability for each IP
+- **Current Status Duration**: Shows how long each IP has been in current state
+
+### Periodic Statistics Summaries
+- **Configurable Intervals**: Show detailed summaries at specified intervals
+- **Overall Statistics**: Total uptime, downtime, and availability across all IPs
+- **Per-IP Details**: Individual statistics for each monitored IP
+- **Recent Outage History**: Shows recent downtime periods with timestamps
+
+### Statistics Logging
+- **CSV/JSON Export**: Log statistics to CSV or JSON files
+- **Automatic Rotation**: Rotate log files based on size
+- **Historical Data**: Maintain historical statistics for analysis
+- **Configurable Fields**: Choose what data to log
+
+### Flapping Detection
+- **Unstable Connection Detection**: Identify IPs with frequent status changes
+- **Configurable Thresholds**: Set sensitivity for flapping detection
+- **Time Window Analysis**: Analyze status changes within specific time periods
+- **Visual Indicators**: Clear marking of flapping connections in output
+
+### Statistics Persistence
+- **Restart Survival**: Statistics survive application restarts
+- **Automatic Save/Load**: Seamlessly save and restore statistics
+- **Pickle Format**: Efficient binary storage of statistics data
+- **Configurable Location**: Choose where to store persistent data
+
+### Example Configuration
+
+```bash
+# Enable advanced statistics
+ENABLE_ADVANCED_STATS=true
+SUMMARY_INTERVAL=300  # Show summary every 5 minutes
+
+# Enable statistics logging
+ENABLE_STATS_LOGGING=true
+STATS_LOG_FILE=pingpanda_stats.csv
+STATS_LOG_FORMAT=csv
+
+# Enable flapping detection
+FLAPPING_THRESHOLD=5  # 5 status changes
+FLAPPING_WINDOW=600   # within 10 minutes
+
+# Enable persistence
+PERSIST_STATS=true
+STATS_PERSISTENCE_FILE=pingpanda_stats.pkl
+```
+
+### Testing Advanced Statistics
+
+Use the included test script to see advanced statistics in action:
+
+```bash
+python3 test_advanced_stats.py
+```
+
+This will run a demonstration with intentionally failing targets to show the statistics features.
 
  ## Running the Service
 
