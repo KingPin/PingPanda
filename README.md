@@ -34,12 +34,12 @@ You can download the `docker-compose.yml` file using `wget` or `curl`:
 
 Using `wget`:
 ```bash
-wget https://raw.githubusercontent.com/KingPin/PingPanda/main/docker-compose.yml
+wget https://raw.githubusercontent.com/KingPin/PingPanda/main/compose.yml
 ```
 
 Using `curl`:
 ```bash
-curl -O https://raw.githubusercontent.com/KingPin/PingPanda/main/docker-compose.yml
+curl -O https://raw.githubusercontent.com/KingPin/PingPanda/main/compose.yml
 ```
 
 ## Configuration
