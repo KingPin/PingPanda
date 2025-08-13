@@ -596,7 +596,9 @@ class PingPanda:
         if not self.enable_dns:
             return
             
-        self.logger.info("Starting DNS resolution checks...")
+        # Show "Starting" message unless we're only showing successes
+        if not self.show_only_success:
+            self.logger.info("Starting DNS resolution checks...")
         for domain in self.domains:
             start_time = time.perf_counter()
             success = False
@@ -650,7 +652,9 @@ class PingPanda:
         if not self.enable_ping:
             return
             
-        self.logger.info("Starting ping checks...")
+        # Show "Starting" message unless we're only showing successes
+        if not self.show_only_success:
+            self.logger.info("Starting ping checks...")
         for ip in self.ping_ips:
             success = False
             start_time = time.perf_counter()
@@ -829,7 +833,9 @@ class PingPanda:
         if not self.enable_website_check or not self.websites:
             return
             
-        self.logger.info("Starting website checks...")
+        # Show "Starting" message unless we're only showing successes
+        if not self.show_only_success:
+            self.logger.info("Starting website checks...")
         for website in self.websites:
             if not website:
                 continue
@@ -895,7 +901,9 @@ class PingPanda:
         if not self.enable_ssl_check:
             return
             
-        self.logger.info("Starting SSL certificate checks...")
+        # Show "Starting" message unless we're only showing successes
+        if not self.show_only_success:
+            self.logger.info("Starting SSL certificate checks...")
         for domain in self.ssl_check_domains:
             try:
                 context = ssl.create_default_context()
