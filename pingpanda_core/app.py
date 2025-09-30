@@ -291,7 +291,6 @@ class PingPanda:
                 log_max_size=self.stats_log_max_size,
                 log_backup_count=self.stats_log_backup_count,
                 persist=self.persist_stats,
-                persistence_file=self.stats_persistence_file,
                 flap_threshold=self.flap_threshold,
                 flap_window_seconds=self.flap_window_seconds,
             )

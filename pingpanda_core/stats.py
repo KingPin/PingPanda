@@ -257,7 +257,6 @@ class StatsSettings:
     log_max_size: int
     log_backup_count: int
     persist: bool
-    persistence_file: str
     flap_threshold: int
     flap_window_seconds: int
 
