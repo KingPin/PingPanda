@@ -60,6 +60,8 @@ services:
       - SHOW_ONLY_FAILURE=false
     volumes:
       - ./logs:/logs
+    ports:
+      - "9090:9090"
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true

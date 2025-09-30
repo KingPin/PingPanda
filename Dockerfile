@@ -27,8 +27,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the Python application
+# Copy the application code
 COPY pingpanda.py .
+COPY pingpanda_core/ ./pingpanda_core/
 
 # Make the script executable
 RUN chmod +x pingpanda.py
