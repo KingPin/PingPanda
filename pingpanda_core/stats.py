@@ -263,7 +263,6 @@ class StatsSettings:
 
 
 @dataclass
-@dataclass
 class StatsUpdateResult:
     status_changed: bool
     current_status: str
