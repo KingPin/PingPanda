@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from threading import Thread, Lock
-from typing import Dict, List, Optional, Union, Any
+from typing import Dict, List, Optional, Union, Any, Set
 
 import pythonping
 import requests
@@ -502,6 +502,7 @@ class PingPanda:
         self.ip_stats: Dict[str, IPStats] = {}
         self.stats_lock = Lock()  # Thread safety for stats updates
         self.last_summary_time = datetime.now()
+        self._filter_log_tracker = set()
         
         # Setup stats logger if enabled
         if self.store_stats_log:
@@ -624,6 +625,12 @@ class PingPanda:
                     
             return status_changed
 
+    def _log_filter_notice(self, key: str, message: str, level: int = logging.INFO) -> None:
+        """Log a one-time notice when filters suppress output."""
+        if key not in self._filter_log_tracker:
+            self.logger.log(level, message)
+            self._filter_log_tracker.add(key)
+
     def _should_log_result(self, is_success: bool) -> bool:
         """
         Determine if a result should be logged based on filtering configuration.
@@ -637,20 +644,34 @@ class PingPanda:
         # If both filters are disabled, show everything
         if not self.show_only_success and not self.show_only_failure:
             return True
-            
-        # If only success filter is enabled, show only successes
-        if self.show_only_success and not self.show_only_failure:
-            return is_success
-            
-        # If only failure filter is enabled, show only failures
-        if self.show_only_failure and not self.show_only_success:
-            return not is_success
-            
+
         # If both filters are enabled, show nothing (conflicting filters)
         if self.show_only_success and self.show_only_failure:
-            self.logger.warning("Both SHOW_ONLY_SUCCESS and SHOW_ONLY_FAILURE are enabled. No results will be displayed.")
+            self._log_filter_notice(
+                "conflicting",
+                "Filtering disabled output: both SHOW_ONLY_SUCCESS and SHOW_ONLY_FAILURE are enabled.",
+                level=logging.WARNING
+            )
             return False
-            
+
+        if self.show_only_success:
+            if is_success:
+                return True
+            self._log_filter_notice(
+                "hide_failure",
+                "Filtering active (SHOW_ONLY_SUCCESS=true); suppressing failed results."
+            )
+            return False
+
+        if self.show_only_failure:
+            if not is_success:
+                return True
+            self._log_filter_notice(
+                "hide_success",
+                "Filtering active (SHOW_ONLY_FAILURE=true); suppressing successful results."
+            )
+            return False
+
         return True
 
     def _post_with_retries(
@@ -768,7 +789,7 @@ class PingPanda:
             return
             
         # Show "Starting" message unless we're only showing successes
-        if not self.show_only_success:
+        if not (self.show_only_success or self.show_only_failure):
             self.logger.info("Starting DNS resolution checks...")
         for domain in self.domains:
             start_time = time.perf_counter()
@@ -824,7 +845,7 @@ class PingPanda:
             return
             
         # Show "Starting" message unless we're only showing successes
-        if not self.show_only_success:
+        if not (self.show_only_success or self.show_only_failure):
             self.logger.info("Starting ping checks...")
         for ip in self.ping_ips:
             success = False
@@ -1008,7 +1029,7 @@ class PingPanda:
             return
             
         # Show "Starting" message unless we're only showing successes
-        if not self.show_only_success:
+        if not (self.show_only_success or self.show_only_failure):
             self.logger.info("Starting website checks...")
         for website in self.websites:
             if not website:
@@ -1076,7 +1097,7 @@ class PingPanda:
             return
             
         # Show "Starting" message unless we're only showing successes
-        if not self.show_only_success:
+        if not (self.show_only_success or self.show_only_failure):
             self.logger.info("Starting SSL certificate checks...")
         for domain in self.ssl_check_domains:
             try:
@@ -1210,6 +1231,7 @@ class PingPanda:
         try:
             while True:
                 loop_start = time.time()
+                self._filter_log_tracker.clear()
                 
                 # Run checks in parallel using threads
                 threads = []
