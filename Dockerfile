@@ -5,12 +5,17 @@ LABEL org.opencontainers.image.authors="KingPin"
 LABEL org.opencontainers.image.description="A Python-based network monitoring tool that checks ping, DNS resolution, website availability, and SSL certificate expiry"
 LABEL org.opencontainers.image.url="https://github.com/KingPin/PingPanda/pkgs/container/pingpanda"
 
-# Install system dependencies (needed for both runtime and building some Python packages)
+# Global Python runtime tweaks
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# Install system dependencies (runtime and build-time separated)
 RUN apk add --no-cache \
     bind-tools \
     iputils \
     curl \
-    openssl \
+    openssl && \
+    apk add --no-cache --virtual .build-deps \
     gcc \
     musl-dev \
     python3-dev \
@@ -28,11 +33,19 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the application code
-COPY pingpanda.py .
-COPY pingpanda_core/ ./pingpanda_core/
+COPY pingpanda.py pingpanda_core/ ./
 
 # Make the script executable
 RUN chmod +x pingpanda.py
+
+# Remove build dependencies to keep the image slim
+RUN apk del .build-deps
+
+# Create non-root user and adjust ownership
+RUN adduser -D pingpanda && \
+    chown -R pingpanda:pingpanda /app /logs /stats
+
+USER pingpanda
 
 # Add to your Dockerfile
 EXPOSE 9090
