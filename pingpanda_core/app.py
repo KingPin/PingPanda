@@ -6,11 +6,10 @@ import logging
 import os
 import time
 from datetime import datetime, timedelta
+from importlib import import_module
 from logging.handlers import RotatingFileHandler
 from threading import Thread
 from typing import Any, Dict, List, Optional, Set, Union
-
-from prometheus_client import Counter, Gauge, Summary, start_http_server
 
 from .checks import CheckDependencies, DNSCheck, PingCheck, SSLCheck, WebsiteCheck
 from .notifications import NotificationManager, NotificationSettings
@@ -67,6 +66,8 @@ class NormalizedConfig(dict):
 
 class PingPanda:
     """PingPanda orchestration layer coordinating checks, notifications, and stats."""
+
+    _prometheus_exports: Optional[Dict[str, Any]] = None
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         self.config = NormalizedConfig(config or {})
@@ -197,24 +198,56 @@ class PingPanda:
         if not self.enable_prometheus:
             return
 
-        self.dns_status = Gauge("pingpanda_dns_status", "DNS resolution status", ["domain"])
-        self.ping_status = Gauge("pingpanda_ping_status", "Ping status", ["target"])
-        self.website_status = Gauge("pingpanda_website_status", "Website check status", ["url"])
-        self.ssl_status = Gauge("pingpanda_ssl_status", "SSL certificate status", ["domain"])
+        exports = self._ensure_prometheus()
+        if not exports:
+            self.logger.warning(
+                "Prometheus metrics requested but prometheus_client is not installed; disabling metrics."
+            )
+            self.enable_prometheus = False
+            return
 
-        self.dns_response_time = Summary("pingpanda_dns_response_seconds", "DNS resolution time", ["domain"])
-        self.ping_response_time = Summary("pingpanda_ping_response_seconds", "Ping response time", ["target"])
-        self.website_response_time = Summary("pingpanda_website_response_seconds", "Website response time", ["url"])
+        counter = exports["Counter"]
+        gauge = exports["Gauge"]
+        summary = exports["Summary"]
+        start_server = exports["start_http_server"]
 
-        self.ssl_days_remaining = Gauge("pingpanda_ssl_days_remaining", "Days until SSL certificate expiry", ["domain"])
+        self.dns_status = gauge("pingpanda_dns_status", "DNS resolution status", ["domain"])
+        self.ping_status = gauge("pingpanda_ping_status", "Ping status", ["target"])
+        self.website_status = gauge("pingpanda_website_status", "Website check status", ["url"])
+        self.ssl_status = gauge("pingpanda_ssl_status", "SSL certificate status", ["domain"])
 
-        self.dns_errors = Counter("pingpanda_dns_errors_total", "Total DNS resolution errors", ["domain"])
-        self.ping_errors = Counter("pingpanda_ping_errors_total", "Total ping errors", ["target"])
-        self.website_errors = Counter("pingpanda_website_errors_total", "Total website check errors", ["url"])
-        self.ssl_errors = Counter("pingpanda_ssl_errors_total", "Total SSL check errors", ["domain"])
+        self.dns_response_time = summary("pingpanda_dns_response_seconds", "DNS resolution time", ["domain"])
+        self.ping_response_time = summary("pingpanda_ping_response_seconds", "Ping response time", ["target"])
+        self.website_response_time = summary("pingpanda_website_response_seconds", "Website response time", ["url"])
 
-        start_http_server(self.prometheus_port)
+        self.ssl_days_remaining = gauge("pingpanda_ssl_days_remaining", "Days until SSL certificate expiry", ["domain"])
+
+        self.dns_errors = counter("pingpanda_dns_errors_total", "Total DNS resolution errors", ["domain"])
+        self.ping_errors = counter("pingpanda_ping_errors_total", "Total ping errors", ["target"])
+        self.website_errors = counter("pingpanda_website_errors_total", "Total website check errors", ["url"])
+        self.ssl_errors = counter("pingpanda_ssl_errors_total", "Total SSL check errors", ["domain"])
+
+        start_server(self.prometheus_port)
         self.logger.info("Prometheus metrics server started on port %s", self.prometheus_port)
+
+    @classmethod
+    def _ensure_prometheus(cls) -> Optional[Dict[str, Any]]:
+        if cls._prometheus_exports is not None:
+            return cls._prometheus_exports
+
+        try:
+            module = import_module("prometheus_client")
+        except ImportError:
+            cls._prometheus_exports = None
+            return None
+
+        cls._prometheus_exports = {
+            "Counter": getattr(module, "Counter"),
+            "Gauge": getattr(module, "Gauge"),
+            "Summary": getattr(module, "Summary"),
+            "start_http_server": getattr(module, "start_http_server"),
+        }
+        return cls._prometheus_exports
 
     def _initialize_components(self) -> None:
         stats_persistence_settings = StatsPersistenceSettings(
