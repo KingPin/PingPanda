@@ -316,6 +316,13 @@ class StatsManager:
                 flapping_changed=flapping_changed,
             )
 
+    @staticmethod
+    def _calculate_availability(total_uptime: float, total_downtime: float) -> float:
+        total = total_uptime + total_downtime
+        if total <= 0:
+            return 100.0
+        return (total_uptime / total) * 100
+
     def get_overall_stats(self) -> Dict[str, Any]:
         with self.stats_lock:
             total_uptime = sum(stats.total_uptime for stats in self.ip_stats.values())
@@ -326,11 +333,7 @@ class StatsManager:
             ips_up = sum(1 for stats in self.ip_stats.values() if stats.current_status == "up")
             ips_down = sum(1 for stats in self.ip_stats.values() if stats.current_status == "down")
 
-            availability = (
-                (total_uptime / (total_uptime + total_downtime)) * 100
-                if (total_uptime + total_downtime) > 0
-                else 100
-            )
+            availability = self._calculate_availability(total_uptime, total_downtime)
 
             return {
                 "total_uptime": total_uptime,
@@ -361,11 +364,7 @@ class StatsManager:
             for ip, stats in sorted(self.ip_stats.items()):
                 status_emoji = "🟢" if stats.current_status == "up" else "🔴"
                 flap_indicator = " 🔄" if stats.is_flapping else ""
-                availability = (
-                    (stats.total_uptime / (stats.total_uptime + stats.total_downtime)) * 100
-                    if (stats.total_uptime + stats.total_downtime) > 0
-                    else 100
-                )
+                availability = self._calculate_availability(stats.total_uptime, stats.total_downtime)
                 current_duration = stats.get_current_status_duration()
 
                 self.logger.info(f"  {status_emoji} {ip} - {stats.current_status.upper()}{flap_indicator}")
