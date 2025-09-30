@@ -174,7 +174,7 @@ class PingPanda:
         self.persist_stats = get_bool("persist_stats", False)
         self.flap_threshold = get_int("flap_threshold", 5)
         self.flap_window_seconds = get_int("flap_window_seconds", 300)
-        log_dir = getattr(self, "log_dir", str(self.config.get("log_dir", "/logs")))
+        log_dir = self.log_dir
         self.stats_log_file = str(self.config.get("stats_log_file", os.path.join(log_dir, "pingpanda_stats.csv")))
         self.stats_persistence_file = str(
             self.config.get("stats_persistence_file", os.path.join(log_dir, "pingpanda_stats.pkl"))
