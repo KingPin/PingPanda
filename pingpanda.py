@@ -20,6 +20,55 @@ from slack_sdk import WebClient
 from prometheus_client import start_http_server, Gauge, Counter, Summary
 
 
+class NormalizedConfig(dict):
+    """Dictionary wrapper that normalizes configuration keys and supports aliases."""
+
+    _ALIASES: Dict[str, str] = {
+        # Advanced statistics aliases
+        "summary_interval": "summary_interval_seconds",
+        "summary_interval_seconds": "summary_interval_seconds",
+        "enable_stats_logging": "store_stats_log",
+        "store_stats_log": "store_stats_log",
+        "stats_log_size": "stats_log_max_size",
+        "log_rotation_size": "stats_log_max_size",
+        "stats_log_max_size": "stats_log_max_size",
+        "flapping_threshold": "flap_threshold",
+        "flap_threshold": "flap_threshold",
+        "flapping_window": "flap_window_seconds",
+        "flap_window_seconds": "flap_window_seconds",
+        # General configuration consistency
+        "check_website": "check_website",
+    }
+
+    def __init__(self, initial: Optional[Dict[str, Any]] = None):
+        super().__init__()
+        self._original = dict(initial) if initial else {}
+        if initial:
+            for key, value in initial.items():
+                super().__setitem__(self._canonical_key(key), value)
+
+    def _canonical_key(self, key: Union[str, Any]) -> str:
+        key_str = str(key)
+        lowered = key_str.lower()
+        return self._ALIASES.get(lowered, lowered)
+
+    def __setitem__(self, key: Union[str, Any], value: Any) -> None:
+        super().__setitem__(self._canonical_key(key), value)
+
+    def __getitem__(self, key: Union[str, Any]) -> Any:
+        return super().__getitem__(self._canonical_key(key))
+
+    def get(self, key: Union[str, Any], default: Any = None) -> Any:
+        return super().get(self._canonical_key(key), default)
+
+    def __contains__(self, key: object) -> bool:
+        return super().__contains__(self._canonical_key(key))
+
+    @property
+    def original(self) -> Dict[str, Any]:
+        return dict(self._original)
+
+
 class IPStats:
     """Track statistics for a single IP address."""
     
@@ -156,7 +205,9 @@ class StatsLogger:
         self.format_type = format_type.lower()
         
         # Create directory if it doesn't exist
-        os.makedirs(os.path.dirname(log_file), exist_ok=True)
+        directory = os.path.dirname(log_file)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
         
         # Setup rotating file handler
         self.handler = RotatingFileHandler(
@@ -247,9 +298,9 @@ class PingPanda:
     Monitors DNS resolution, ping response, website availability, and SSL certificate expiry.
     """
 
-    def __init__(self, config: Optional[Dict[str, Union[str, int, bool]]] = None):
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
         """Initialize the PingPanda monitoring tool with configuration."""
-        self.config = config or {}
+        self.config = NormalizedConfig(config or {})
         self._setup_logging()
         self._load_config()
         self._initialize_status_tracking()
@@ -258,11 +309,11 @@ class PingPanda:
         
     def _setup_logging(self):
         """Configure logging with console and file handlers if enabled."""
-        log_level = getattr(logging, str(self.config.get("LOG_LEVEL", "INFO")).upper())
-        log_dir = str(self.config.get("LOG_DIR", "/logs"))
-        log_file = os.path.join(log_dir, str(self.config.get("LOG_FILE", "pingpanda.log")))
-        max_log_size = int(self.config.get("MAX_LOG_SIZE", 1048576))  # 1MB default
-        log_backup_count = int(self.config.get("LOG_BACKUP_COUNT", 5))
+        log_level = getattr(logging, str(self.config.get("log_level", "INFO")).upper(), logging.INFO)
+        log_dir = str(self.config.get("log_dir", "/logs"))
+        log_file = os.path.join(log_dir, str(self.config.get("log_file", "pingpanda.log")))
+        max_log_size = int(self.config.get("max_log_size", 1048576))  # 1MB default
+        log_backup_count = int(self.config.get("log_backup_count", 5))
         
         # Create log directory if it doesn't exist
         os.makedirs(os.path.dirname(log_file), exist_ok=True)
@@ -272,64 +323,101 @@ class PingPanda:
         
         formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
         
-        if str(self.config.get("LOG_TO_TERMINAL", "true")).lower() == "true":
+        if str(self.config.get("log_to_terminal", "true")).lower() == "true":
             console_handler = logging.StreamHandler()
             console_handler.setFormatter(formatter)
             self.logger.addHandler(console_handler)
         
-        if str(self.config.get("LOG_TO_FILE", "true")).lower() == "true":
+        if str(self.config.get("log_to_file", "true")).lower() == "true":
             file_handler = RotatingFileHandler(
                 log_file, maxBytes=max_log_size, backupCount=log_backup_count
             )
             file_handler.setFormatter(formatter)
             self.logger.addHandler(file_handler)
+        
+        self.log_dir = log_dir
+        self.log_file = log_file
     
     def _load_config(self):
         """Load configuration from environment variables with defaults."""
-        self.interval = int(self.config.get("INTERVAL", 15))
-        self.verbose = str(self.config.get("VERBOSE", "false")).lower() == "true"
-        self.retry_count = int(self.config.get("RETRY_COUNT", 3))
+        def get_bool(key: str, default: bool = False) -> bool:
+            value = self.config.get(key, default)
+            if isinstance(value, bool):
+                return value
+            if value is None:
+                return bool(default)
+            if isinstance(value, (int, float)):
+                return bool(value)
+            return str(value).strip().lower() in {"true", "1", "yes", "on"}
+
+        def get_int(key: str, default: int) -> int:
+            value = self.config.get(key, default)
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return int(default)
+
+        def get_list(key: str, default: str = "") -> List[str]:
+            raw_value = self.config.get(key, default)
+            if raw_value is None:
+                return []
+            if isinstance(raw_value, (list, tuple)):
+                return list(raw_value)
+            return [item.strip() for item in str(raw_value).split(",") if item.strip()]
+
+        self.interval = get_int("interval", 15)
+        self.verbose = get_bool("verbose", False)
+        self.retry_count = get_int("retry_count", 3)
         self.success_http_codes = [
-            int(code) for code in str(self.config.get("SUCCESS_HTTP_CODES", "200")).split(",")
+            int(code.strip())
+            for code in str(self.config.get("success_http_codes", "200")).split(",")
+            if code.strip()
         ]
-        self.alert_threshold = int(self.config.get("ALERT_THRESHOLD", 3))
-        self.domains = str(self.config.get("DOMAINS", "google.com")).split(",")
-        self.ping_ips = str(self.config.get("PING_IPS", "1.1.1.1")).split(",")
-        self.websites = str(self.config.get("CHECK_WEBSITE", "")).split(",") if self.config.get("CHECK_WEBSITE") else []
-        self.enable_website_check = str(self.config.get("ENABLE_WEBSITE_CHECK", "false")).lower() == "true"
-        self.ssl_check_domains = str(self.config.get("SSL_CHECK_DOMAINS", "google.com")).split(",")
-        self.enable_ssl_check = str(self.config.get("ENABLE_SSL_CHECK", "false")).lower() == "true"
-        self.enable_ping = str(self.config.get("ENABLE_PING", "true")).lower() == "true"
-        self.enable_dns = str(self.config.get("ENABLE_DNS", "true")).lower() == "true"
-        self.ssl_warn_days = int(self.config.get("SSL_WARN_DAYS", 30))
-        self.ssl_critical_days = int(self.config.get("SSL_CRITICAL_DAYS", 7))
-        self.notify_recovery = str(self.config.get("NOTIFY_RECOVERY", "true")).lower() == "true"
-        
+        if not self.success_http_codes:
+            self.success_http_codes = [200]
+        self.alert_threshold = get_int("alert_threshold", 3)
+        self.domains = get_list("domains", "google.com")
+        self.ping_ips = get_list("ping_ips", "1.1.1.1")
+        check_website = self.config.get("check_website")
+        self.websites = get_list("check_website") if check_website else []
+        self.enable_website_check = get_bool("enable_website_check", False)
+        self.ssl_check_domains = get_list("ssl_check_domains", "google.com")
+        self.enable_ssl_check = get_bool("enable_ssl_check", False)
+        self.enable_ping = get_bool("enable_ping", True)
+        self.enable_dns = get_bool("enable_dns", True)
+        self.ssl_warn_days = get_int("ssl_warn_days", 30)
+        self.ssl_critical_days = get_int("ssl_critical_days", 7)
+        self.notify_recovery = get_bool("notify_recovery", True)
+
         # Filtering options
-        self.show_only_success = str(self.config.get("SHOW_ONLY_SUCCESS", "false")).lower() == "true"
-        self.show_only_failure = str(self.config.get("SHOW_ONLY_FAILURE", "false")).lower() == "true"
-        
+        self.show_only_success = get_bool("show_only_success", False)
+        self.show_only_failure = get_bool("show_only_failure", False)
+
         # Stats tracking configuration
-        self.summary_interval = int(self.config.get("SUMMARY_INTERVAL_SECONDS", 120))
-        self.store_stats_log = str(self.config.get("STORE_STATS_LOG", "false")).lower() == "true"
-        self.stats_log_format = str(self.config.get("STATS_LOG_FORMAT", "csv")).lower()
-        self.stats_log_max_size = int(self.config.get("STATS_LOG_MAX_SIZE", 1048576))  # 1MB
-        self.stats_log_backup_count = int(self.config.get("STATS_LOG_BACKUP_COUNT", 5))
-        self.persist_stats = str(self.config.get("PERSIST_STATS", "false")).lower() == "true"
-        self.flap_threshold = int(self.config.get("FLAP_THRESHOLD", 5))
-        self.flap_window_seconds = int(self.config.get("FLAP_WINDOW_SECONDS", 300))  # 5 minutes
-        
+        self.enable_advanced_stats = get_bool("enable_advanced_stats", False)
+        self.summary_interval = max(0, get_int("summary_interval_seconds", 0))
+        self.store_stats_log = get_bool("store_stats_log", False)
+        self.stats_log_format = str(self.config.get("stats_log_format", "csv")).lower()
+        self.stats_log_max_size = get_int("stats_log_max_size", 1048576)
+        self.stats_log_backup_count = get_int("stats_log_backup_count", 5)
+        self.persist_stats = get_bool("persist_stats", False)
+        self.flap_threshold = get_int("flap_threshold", 5)
+        self.flap_window_seconds = get_int("flap_window_seconds", 300)
+        log_dir = getattr(self, "log_dir", str(self.config.get("log_dir", "/logs")))
+        self.stats_log_file = str(self.config.get("stats_log_file", os.path.join(log_dir, "pingpanda_stats.csv")))
+        self.stats_persistence_file = str(self.config.get("stats_persistence_file", os.path.join(log_dir, "pingpanda_stats.pkl")))
+
         # Notification settings
-        self.slack_webhook_url = self.config.get("SLACK_WEBHOOK_URL")
-        self.teams_webhook_url = self.config.get("TEAMS_WEBHOOK_URL")
-        self.discord_webhook_url = self.config.get("DISCORD_WEBHOOK_URL")
-        
+        self.slack_webhook_url = self.config.get("slack_webhook_url")
+        self.teams_webhook_url = self.config.get("teams_webhook_url")
+        self.discord_webhook_url = self.config.get("discord_webhook_url")
+
         # Initialize Slack client if webhook URL is provided
         self.slack_client = WebClient(token=self.slack_webhook_url) if self.slack_webhook_url else None
-        
+
         # Add Prometheus configuration
-        self.enable_prometheus = str(self.config.get("ENABLE_PROMETHEUS", "false")).lower() == "true"
-        self.prometheus_port = int(self.config.get("PROMETHEUS_PORT", "9090"))
+        self.enable_prometheus = get_bool("enable_prometheus", False)
+        self.prometheus_port = get_int("prometheus_port", 9090)
     
     def _setup_prometheus(self):
         """Initialize Prometheus metrics if enabled."""
@@ -362,7 +450,7 @@ class PingPanda:
     
     def _initialize_status_tracking(self):
         """Initialize status tracking for alert thresholds and recovery notifications."""
-        self.status_dir = os.path.join(str(self.config.get("LOG_DIR", "/logs")), "status")
+        self.status_dir = os.path.join(self.log_dir, "status")
         os.makedirs(self.status_dir, exist_ok=True)
         self.failure_counts = {}
         
@@ -373,9 +461,8 @@ class PingPanda:
         
         # Setup stats logger if enabled
         if self.store_stats_log:
-            stats_log_file = os.path.join(str(self.config.get("LOG_DIR", "/logs")), "ping_stats.log")
             self.stats_logger = StatsLogger(
-                stats_log_file,
+                self.stats_log_file,
                 self.stats_log_format,
                 self.stats_log_max_size,
                 self.stats_log_backup_count
@@ -787,10 +874,10 @@ class PingPanda:
 
     def _load_stats(self):
         """Load statistics from persistent storage if enabled."""
-        if not self.config.get('enable_advanced_stats', False) or not self.config.get('persist_stats', False):
+        if not self.enable_advanced_stats or not self.persist_stats:
             return
             
-        stats_file = str(self.config.get('stats_persistence_file', 'pingpanda_stats.pkl'))
+        stats_file = self.stats_persistence_file
         if os.path.exists(stats_file):
             try:
                 with open(stats_file, 'rb') as f:
@@ -805,11 +892,14 @@ class PingPanda:
 
     def _save_stats(self):
         """Save statistics to persistent storage if enabled."""
-        if not self.config.get('enable_advanced_stats', False) or not self.config.get('persist_stats', False):
+        if not self.enable_advanced_stats or not self.persist_stats:
             return
             
-        stats_file = str(self.config.get('stats_persistence_file', 'pingpanda_stats.pkl'))
+        stats_file = self.stats_persistence_file
         try:
+            stats_dir = os.path.dirname(stats_file)
+            if stats_dir:
+                os.makedirs(stats_dir, exist_ok=True)
             with self.stats_lock:
                 data_to_save = {
                     'ip_stats': self.ip_stats,
@@ -1017,16 +1107,14 @@ class PingPanda:
         self.output_status_summary()
         
         # Log advanced stats configuration if enabled
-        if self.config.get('enable_advanced_stats', False):
+        if self.enable_advanced_stats:
             self.logger.info("Advanced statistics tracking: ENABLED")
-            summary_interval = int(self.config.get('summary_interval', 0))
-            if summary_interval > 0:
-                self.logger.info(f"Statistics summary interval: {summary_interval} seconds")
-            if self.config.get('enable_stats_logging', False):
-                self.logger.info(f"Statistics logging: ENABLED -> {self.config.get('stats_log_file', 'pingpanda_stats.csv')}")
-            flapping_threshold = int(self.config.get('flapping_threshold', 0))
-            if flapping_threshold > 0:
-                self.logger.info(f"Flapping detection threshold: {flapping_threshold} status changes")
+            if self.summary_interval > 0:
+                self.logger.info(f"Statistics summary interval: {self.summary_interval} seconds")
+            if self.store_stats_log:
+                self.logger.info(f"Statistics logging: ENABLED -> {self.stats_log_file}")
+            if self.flap_threshold > 0:
+                self.logger.info(f"Flapping detection threshold: {self.flap_threshold} status changes")
         
         # Load existing stats
         self._load_stats()
@@ -1056,12 +1144,10 @@ class PingPanda:
 
                 # Check if it's time for a summary (first run or interval passed)
                 current_time = datetime.now()
-                summary_interval = int(self.config.get('summary_interval', 0))
-                
-                if (self.config.get('enable_advanced_stats', False) and 
-                    summary_interval > 0 and 
+                if (self.enable_advanced_stats and 
+                    self.summary_interval > 0 and 
                     (self.last_summary_time is None or 
-                     (current_time - self.last_summary_time).total_seconds() >= summary_interval)):
+                     (current_time - self.last_summary_time).total_seconds() >= self.summary_interval)):
                     self._output_stats_summary()
 
                 time.sleep(self.interval)
