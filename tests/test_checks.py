@@ -43,6 +43,8 @@ class DummyApp:
                 "target": target,
             }
         )
+
+
 def test_dns_check_success(monkeypatch):
     app = DummyApp()
     app.enable_dns = True
