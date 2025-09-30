@@ -14,6 +14,7 @@ from prometheus_client import Counter, Gauge, Summary, start_http_server
 
 from .checks import CheckDependencies, DNSCheck, PingCheck, SSLCheck, WebsiteCheck
 from .notifications import NotificationManager, NotificationSettings
+from .persistence import PersistenceManager, StatsPersistenceSettings
 from .stats import StatsManager, StatsSettings
 
 
@@ -217,7 +218,11 @@ class PingPanda:
 
     def _initialize_components(self) -> None:
         self.status_dir = os.path.join(self.log_dir, "status")
-        os.makedirs(self.status_dir, exist_ok=True)
+        stats_persistence_settings = StatsPersistenceSettings(
+            enabled=self.enable_advanced_stats and self.persist_stats,
+            file_path=self.stats_persistence_file,
+        )
+        self.persistence = PersistenceManager(self.logger, self.status_dir, stats_persistence_settings)
 
         self._filter_log_tracker: Set[str] = set()
 
@@ -235,7 +240,7 @@ class PingPanda:
             discord_username=self.discord_username,
             discord_avatar_url=self.discord_avatar_url,
         )
-        self.notifier = NotificationManager(self.logger, self.status_dir, notification_settings)
+        self.notifier = NotificationManager(self.logger, self.persistence, notification_settings)
 
         if self.enable_advanced_stats:
             stats_settings = StatsSettings(
@@ -251,7 +256,7 @@ class PingPanda:
                 flap_threshold=self.flap_threshold,
                 flap_window_seconds=self.flap_window_seconds,
             )
-            self.stats_manager = StatsManager(self.logger, stats_settings)
+            self.stats_manager = StatsManager(self.logger, stats_settings, persistence=self.persistence)
             self.stats_manager.load()
             self.stats_logger = self.stats_manager.stats_logger
             self.ip_stats = self.stats_manager.ip_stats

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import socket
 import time
 from dataclasses import dataclass
@@ -11,6 +10,8 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 
 import requests
+
+from .persistence import PersistenceManager
 
 
 @dataclass
@@ -32,11 +33,16 @@ class NotificationSettings:
 class NotificationManager:
     """Manage notification throttling and webhook delivery."""
 
-    def __init__(self, logger: logging.Logger, status_dir: str, settings: NotificationSettings):
+    def __init__(
+        self,
+        logger: logging.Logger,
+        persistence: PersistenceManager,
+        settings: NotificationSettings,
+    ):
         self.logger = logger
         self.settings = settings
-        self.status_dir = status_dir
-        os.makedirs(self.status_dir, exist_ok=True)
+        self.persistence = persistence
+        self.status_dir = persistence.status_dir
         self._failure_counts: Dict[str, int] = {}
 
     def notify(self, message: str, status: str, check_type: str, target: str) -> None:
@@ -72,18 +78,13 @@ class NotificationManager:
     def _status_key(self, check_type: str, target: str) -> str:
         return f"{check_type}_{target}"
 
-    def _status_file(self, status_key: str) -> str:
-        return os.path.join(self.status_dir, status_key.replace("/", "_"))
-
     def _should_notify(self, check_type: str, target: str, status: str) -> bool:
         status_key = self._status_key(check_type, target)
-        status_file = self._status_file(status_key)
 
         if status == "error":
             failure_count = self._failure_counts.get(status_key, 0) + 1
             self._failure_counts[status_key] = failure_count
-            with open(status_file, "w", encoding="utf-8") as handle:
-                handle.write(str(failure_count))
+            self.persistence.write_status_count(status_key, failure_count)
             return failure_count >= self.settings.alert_threshold
 
         if status == "ok":
@@ -92,11 +93,7 @@ class NotificationManager:
                 and self._failure_counts.get(status_key, 0) >= self.settings.alert_threshold
             )
             self._failure_counts[status_key] = 0
-            if os.path.exists(status_file):
-                try:
-                    os.remove(status_file)
-                except OSError:
-                    pass
+            self.persistence.clear_status(status_key)
             return should_notify
 
         return False

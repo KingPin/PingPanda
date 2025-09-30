@@ -7,12 +7,13 @@ import io
 import json
 import logging
 import os
-import pickle
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from logging.handlers import RotatingFileHandler
 from threading import Lock
 from typing import Any, Dict, Optional
+
+from .persistence import PersistenceManager
 
 
 class IPStats:
@@ -274,6 +275,7 @@ class StatsUpdateResult:
 class StatsManager:
     logger: logging.Logger
     settings: StatsSettings
+    persistence: Optional[PersistenceManager] = None
     ip_stats: Dict[str, IPStats] = field(default_factory=dict)
     stats_lock: Lock = field(default_factory=Lock)
     last_summary_time: Optional[datetime] = None
@@ -401,17 +403,11 @@ class StatsManager:
             self.last_summary_time = datetime.now()
 
     def load(self) -> None:
-        if not (self.settings.enable and self.settings.persist):
+        if not (self.settings.enable and self.settings.persist and self.persistence):
             return
 
-        if not os.path.exists(self.settings.persistence_file):
-            return
-
-        try:
-            with open(self.settings.persistence_file, "rb") as handle:
-                stored = pickle.load(handle)
-        except Exception as exc:
-            self.logger.error(f"Failed to load stats from {self.settings.persistence_file}: {exc}")
+        stored = self.persistence.load_stats()
+        if not stored:
             return
 
         with self.stats_lock:
@@ -421,16 +417,14 @@ class StatsManager:
             }
 
         self.logger.info(
-            f"Loaded statistics for {len(self.ip_stats)} IPs from {self.settings.persistence_file}"
+            "Loaded statistics for %s IPs from %s",
+            len(self.ip_stats),
+            self.persistence.stats_settings.file_path,
         )
 
     def save(self) -> None:
-        if not (self.settings.enable and self.settings.persist):
+        if not (self.settings.enable and self.settings.persist and self.persistence):
             return
-
-        directory = os.path.dirname(self.settings.persistence_file)
-        if directory:
-            os.makedirs(directory, exist_ok=True)
 
         with self.stats_lock:
             payload = {
@@ -438,8 +432,4 @@ class StatsManager:
                 "saved_at": datetime.now(),
             }
 
-        try:
-            with open(self.settings.persistence_file, "wb") as handle:
-                pickle.dump(payload, handle)
-        except Exception as exc:
-            self.logger.error(f"Failed to save stats to {self.settings.persistence_file}: {exc}")
+        self.persistence.save_stats(payload)
