@@ -1,5 +1,6 @@
 import argparse
 import csv
+import io
 import json
 import logging
 import os
@@ -197,99 +198,132 @@ class IPStats:
         return stats
 
 
+class _StatsRotatingFileHandler(RotatingFileHandler):
+    """Rotating handler that writes a header row when a new file is created."""
+
+    def __init__(self, filename: str, maxBytes: int, backupCount: int, header_line: Optional[str] = None):
+        self.header_line = header_line
+        super().__init__(filename, maxBytes=maxBytes, backupCount=backupCount)
+        self._ensure_header()
+
+    def _ensure_header(self) -> None:
+        if not self.header_line:
+            return
+        try:
+            if not os.path.exists(self.baseFilename) or os.path.getsize(self.baseFilename) == 0:
+                if self.stream is None:
+                    self.stream = self._open()
+                self.stream.write(self.header_line + os.linesep)
+                self.stream.flush()
+        except OSError:
+            # Swallow errors to avoid breaking the monitoring loop; caller will log failures
+            pass
+
+    def doRollover(self) -> None:
+        super().doRollover()
+        self._ensure_header()
+
+
 class StatsLogger:
     """Handle logging of statistics in CSV or JSON format."""
-    
+
+    _CSV_HEADER = [
+        "timestamp", "ip", "current_status", "total_uptime", "total_downtime",
+        "downtime_events", "last_status_change", "current_status_duration",
+        "is_flapping"
+    ]
+
     def __init__(self, log_file: str, format_type: str = "csv", max_size: int = 1048576, backup_count: int = 5):
         self.log_file = log_file
         self.format_type = format_type.lower()
-        
-        # Create directory if it doesn't exist
+
+        # Ensure target directory exists
         directory = os.path.dirname(log_file)
         if directory:
             os.makedirs(directory, exist_ok=True)
-        
-        # Setup rotating file handler
-        self.handler = RotatingFileHandler(
-            log_file, 
-            maxBytes=max_size, 
-            backupCount=backup_count
+
+        header_line: Optional[str] = None
+        if self.format_type == "csv":
+            buffer = io.StringIO()
+            csv.writer(buffer).writerow(self._CSV_HEADER)
+            header_line = buffer.getvalue().strip("\r\n")
+
+        self.handler = _StatsRotatingFileHandler(
+            log_file,
+            maxBytes=max_size,
+            backupCount=backup_count,
+            header_line=header_line
         )
-        
-        # Write CSV header if file is new and format is CSV
-        if self.format_type == "csv" and not os.path.exists(log_file):
-            self._write_csv_header()
-            
-    def _write_csv_header(self):
-        """Write CSV header row."""
-        header = [
-            "timestamp", "ip", "current_status", "total_uptime", "total_downtime",
-            "downtime_events", "last_status_change", "current_status_duration",
-            "is_flapping"
-        ]
-        with open(self.log_file, 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(header)
-            
+        self.handler.setLevel(logging.INFO)
+        self.handler.setFormatter(logging.Formatter("%(message)s"))
+
+        logger_name = f"pingpanda.stats.{id(self)}"
+        self._logger = logging.getLogger(logger_name)
+        self._logger.handlers = []
+        self._logger.setLevel(logging.INFO)
+        self._logger.propagate = False
+        self._logger.addHandler(self.handler)
+
+        self._error_logger = logging.getLogger("pingpanda")
+
     def log_stats(self, ip_stats: Dict[str, IPStats], overall_stats: Dict[str, Any]):
         """Log statistics to file."""
         timestamp = datetime.now().isoformat()
-        
-        if self.format_type == "csv":
-            self._log_csv(timestamp, ip_stats, overall_stats)
-        else:
-            self._log_json(timestamp, ip_stats, overall_stats)
-            
+
+        try:
+            if self.format_type == "csv":
+                self._log_csv(timestamp, ip_stats, overall_stats)
+            else:
+                self._log_json(timestamp, ip_stats, overall_stats)
+        except Exception as exc:
+            self._error_logger.error(f"Failed to log statistics: {exc}")
+
     def _log_csv(self, timestamp: str, ip_stats: Dict[str, IPStats], overall_stats: Dict[str, Any]):
         """Log in CSV format."""
-        # Use file rotation
-        if os.path.getsize(self.log_file) > self.handler.maxBytes:
-            self.handler.doRollover()
-            
-        with open(self.log_file, 'a', newline='') as f:
-            writer = csv.writer(f)
-            
-            # Write IP stats
-            for stats in ip_stats.values():
-                writer.writerow([
-                    timestamp,
-                    stats.ip,
-                    stats.current_status,
-                    f"{stats.total_uptime:.2f}",
-                    f"{stats.total_downtime:.2f}",
-                    stats.downtime_events,
-                    stats.last_status_change.isoformat(),
-                    f"{stats.get_current_status_duration():.2f}",
-                    stats.is_flapping
-                ])
-                
-            # Write overall stats
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+
+        for stats in ip_stats.values():
             writer.writerow([
                 timestamp,
-                "OVERALL",
-                "summary",
-                f"{overall_stats['total_uptime']:.2f}",
-                f"{overall_stats['total_downtime']:.2f}",
-                overall_stats['total_downtime_events'],
-                "",
-                "",
-                overall_stats['total_flapping_ips']
+                stats.ip,
+                stats.current_status,
+                f"{stats.total_uptime:.2f}",
+                f"{stats.total_downtime:.2f}",
+                stats.downtime_events,
+                stats.last_status_change.isoformat(),
+                f"{stats.get_current_status_duration():.2f}",
+                stats.is_flapping
             ])
-            
+
+        writer.writerow([
+            timestamp,
+            "OVERALL",
+            "summary",
+            f"{overall_stats['total_uptime']:.2f}",
+            f"{overall_stats['total_downtime']:.2f}",
+            overall_stats['total_downtime_events'],
+            "",
+            "",
+            overall_stats['total_flapping_ips']
+        ])
+
+        data = buffer.getvalue().strip()
+        if not data:
+            return
+
+        for line in data.splitlines():
+            self._logger.info(line)
+
     def _log_json(self, timestamp: str, ip_stats: Dict[str, IPStats], overall_stats: Dict[str, Any]):
         """Log in JSON format."""
-        # Use file rotation
-        if os.path.getsize(self.log_file) > self.handler.maxBytes:
-            self.handler.doRollover()
-            
         log_entry = {
             "timestamp": timestamp,
             "ip_stats": {ip: stats.to_dict() for ip, stats in ip_stats.items()},
             "overall_stats": overall_stats
         }
-        
-        with open(self.log_file, 'a') as f:
-            f.write(json.dumps(log_entry) + '\n')
+
+        self._logger.info(json.dumps(log_entry, sort_keys=True))
 
 
 class PingPanda:
