@@ -44,6 +44,7 @@ RUN apk del .build-deps
 
 # Create non-root user and adjust ownership
 RUN adduser -D pingpanda && \
+    mkdir -p /logs /stats && \
     chown -R pingpanda:pingpanda /app /logs /stats
 
 USER pingpanda
