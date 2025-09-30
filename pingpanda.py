@@ -17,7 +17,6 @@ from typing import Dict, List, Optional, Union, Any
 
 import pythonping
 import requests
-from slack_sdk import WebClient
 from prometheus_client import start_http_server, Gauge, Counter, Summary
 
 
@@ -391,6 +390,13 @@ class PingPanda:
             except (TypeError, ValueError):
                 return int(default)
 
+        def get_float(key: str, default: float) -> float:
+            value = self.config.get(key, default)
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return float(default)
+
         def get_list(key: str, default: str = "") -> List[str]:
             raw_value = self.config.get(key, default)
             if raw_value is None:
@@ -445,9 +451,13 @@ class PingPanda:
         self.slack_webhook_url = self.config.get("slack_webhook_url")
         self.teams_webhook_url = self.config.get("teams_webhook_url")
         self.discord_webhook_url = self.config.get("discord_webhook_url")
-
-        # Initialize Slack client if webhook URL is provided
-        self.slack_client = WebClient(token=self.slack_webhook_url) if self.slack_webhook_url else None
+        self.slack_channel = self.config.get("slack_channel")
+        self.slack_username = self.config.get("slack_username", "PingPanda")
+        self.slack_icon_emoji = self.config.get("slack_icon_emoji")
+        self.discord_username = self.config.get("discord_username", "PingPanda")
+        self.discord_avatar_url = self.config.get("discord_avatar_url")
+        self.notification_retry_attempts = max(1, get_int("notification_retry_attempts", 3))
+        self.notification_retry_backoff = max(0.0, get_float("notification_retry_backoff_seconds", 1.0))
 
         # Add Prometheus configuration
         self.enable_prometheus = get_bool("enable_prometheus", False)
@@ -643,6 +653,44 @@ class PingPanda:
             
         return True
 
+    def _post_with_retries(
+        self,
+        url: Optional[str],
+        payload: Dict[str, Any],
+        service: str,
+        headers: Optional[Dict[str, str]] = None
+    ) -> bool:
+        """Send a webhook payload with retry handling."""
+        if not url:
+            return False
+
+        for attempt in range(1, self.notification_retry_attempts + 1):
+            try:
+                response = requests.post(url, json=payload, headers=headers, timeout=5)
+                if response.status_code < 400:
+                    return True
+
+                self.logger.warning(
+                    "%s webhook returned status %s: %s",
+                    service,
+                    response.status_code,
+                    response.text[:500],
+                )
+            except requests.RequestException as exc:
+                self.logger.warning(
+                    "%s notification attempt %s/%s failed: %s",
+                    service,
+                    attempt,
+                    self.notification_retry_attempts,
+                    exc,
+                )
+
+            if attempt < self.notification_retry_attempts and self.notification_retry_backoff > 0:
+                time.sleep(self.notification_retry_backoff * attempt)
+
+        self.logger.error("Failed to send %s notification after %s attempts", service, self.notification_retry_attempts)
+        return False
+
     def send_notification(self, message: str, status: str = "error", check_type: str = "general", target: str = "unknown"):
         """
         Send notifications to configured channels with improved formatting.
@@ -662,55 +710,57 @@ class PingPanda:
         
         # Send to Slack
         if self.slack_webhook_url:
-            try:
-                color = "good" if status == "ok" else "danger"
-                self.slack_client.chat_postMessage(
-                    channel="#general",
-                    text=title,
-                    attachments=[{
-                        "color": color,
-                        "text": formatted_message,
-                        "mrkdwn_in": ["text"]
-                    }]
-                )
-            except Exception as e:
-                self.logger.error(f"Failed to send Slack notification: {e}")
+            color = "good" if status == "ok" else "danger"
+            slack_payload: Dict[str, Any] = {
+                "text": title,
+                "attachments": [{
+                    "color": color,
+                    "text": formatted_message,
+                    "footer": "PingPanda",
+                    "ts": int(datetime.now().timestamp())
+                }]
+            }
+
+            if self.slack_channel:
+                slack_payload["channel"] = self.slack_channel
+            if self.slack_username:
+                slack_payload["username"] = self.slack_username
+            if self.slack_icon_emoji:
+                slack_payload["icon_emoji"] = self.slack_icon_emoji
+
+            self._post_with_retries(self.slack_webhook_url, slack_payload, "Slack")
                 
         # Send to Microsoft Teams
         if self.teams_webhook_url:
-            try:
-                color = "00FF00" if status == "ok" else "FF0000"
-                requests.post(
-                    self.teams_webhook_url,
-                    json={
-                        "@type": "MessageCard",
-                        "@context": "http://schema.org/extensions",
-                        "themeColor": color,
-                        "title": title,
-                        "text": formatted_message
-                    },
-                    timeout=5
-                )
-            except Exception as e:
-                self.logger.error(f"Failed to send Teams notification: {e}")
+            color = "00FF00" if status == "ok" else "FF0000"
+            teams_payload = {
+                "@type": "MessageCard",
+                "@context": "http://schema.org/extensions",
+                "themeColor": color,
+                "summary": title,
+                "title": title,
+                "text": formatted_message.replace("*", "")
+            }
+
+            self._post_with_retries(self.teams_webhook_url, teams_payload, "Microsoft Teams")
                 
         # Send to Discord
         if self.discord_webhook_url:
-            try:
-                color = 65280 if status == "ok" else 16711680  # Green or Red
-                requests.post(
-                    self.discord_webhook_url,
-                    json={
-                        "embeds": [{
-                            "title": title,
-                            "description": formatted_message,
-                            "color": color
-                        }]
-                    },
-                    timeout=5
-                )
-            except Exception as e:
-                self.logger.error(f"Failed to send Discord notification: {e}")
+            color = 65280 if status == "ok" else 16711680  # Green or Red
+            discord_payload: Dict[str, Any] = {
+                "embeds": [{
+                    "title": title,
+                    "description": formatted_message.replace("*", ""),
+                    "color": color
+                }]
+            }
+
+            if self.discord_username:
+                discord_payload["username"] = self.discord_username
+            if self.discord_avatar_url:
+                discord_payload["avatar_url"] = self.discord_avatar_url
+
+            self._post_with_retries(self.discord_webhook_url, discord_payload, "Discord")
 
     def check_dns(self):
         """Check DNS resolution for configured domains."""
@@ -1034,8 +1084,12 @@ class PingPanda:
                 with socket.create_connection((domain, 443), timeout=5) as sock:
                     with context.wrap_socket(sock, server_hostname=domain) as ssock:
                         cert = ssock.getpeercert()
+                        not_after = cert.get("notAfter") if isinstance(cert, dict) else None
+                        if not isinstance(not_after, str):
+                            raise ValueError("SSL certificate response missing notAfter field")
+
                         expiry_date = datetime.strptime(
-                            cert["notAfter"], "%b %d %H:%M:%S %Y %Z"
+                            not_after, "%b %d %H:%M:%S %Y %Z"
                         )
                         days_left = (expiry_date - datetime.now()).days
                         
