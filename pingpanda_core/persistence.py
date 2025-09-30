@@ -20,10 +20,19 @@ class StatsPersistenceSettings:
 class PersistenceManager:
     """Encapsulate filesystem persistence for stats and status markers."""
 
-    def __init__(self, logger: logging.Logger, status_dir: str, stats_settings: StatsPersistenceSettings):
+    def __init__(
+        self,
+        logger: logging.Logger,
+        base_dir: str,
+        stats_settings: StatsPersistenceSettings,
+        status_dir: Optional[str] = None,
+        status_subdir: str = "status",
+    ):
         self.logger = logger
         self.stats_settings = stats_settings
-        self.status_dir = status_dir
+        self.base_dir = base_dir
+        resolved_status_dir = status_dir or os.path.join(base_dir, status_subdir)
+        self.status_dir = resolved_status_dir
         os.makedirs(self.status_dir, exist_ok=True)
 
     # ---- Status helpers -------------------------------------------------

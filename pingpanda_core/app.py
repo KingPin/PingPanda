@@ -217,12 +217,18 @@ class PingPanda:
         self.logger.info("Prometheus metrics server started on port %s", self.prometheus_port)
 
     def _initialize_components(self) -> None:
-        self.status_dir = os.path.join(self.log_dir, "status")
         stats_persistence_settings = StatsPersistenceSettings(
             enabled=self.enable_advanced_stats and self.persist_stats,
             file_path=self.stats_persistence_file,
         )
-        self.persistence = PersistenceManager(self.logger, self.status_dir, stats_persistence_settings)
+        status_dir_override = self.config.get("status_dir")
+        status_dir = str(status_dir_override) if status_dir_override else None
+        self.persistence = PersistenceManager(
+            self.logger,
+            base_dir=self.log_dir,
+            stats_settings=stats_persistence_settings,
+            status_dir=status_dir,
+        )
 
         self._filter_log_tracker: Set[str] = set()
 
