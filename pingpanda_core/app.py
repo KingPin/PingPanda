@@ -151,8 +151,8 @@ class PingPanda:
         self.alert_threshold = get_int("alert_threshold", 3)
         self.domains = get_list("domains", "google.com")
         self.ping_ips = get_list("ping_ips", "1.1.1.1")
-        check_website = self.config.get("check_website")
-        self.websites = get_list("check_website") if check_website else []
+        websites_config = self.config.get("check_website")
+        self.websites = get_list("check_website") if websites_config else []
         self.enable_website_check = get_bool("enable_website_check", False)
         self.ssl_check_domains = get_list("ssl_check_domains", "google.com")
         self.enable_ssl_check = get_bool("enable_ssl_check", False)
