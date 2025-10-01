@@ -58,6 +58,13 @@ services:
       # Filtering Options  
       - SHOW_ONLY_SUCCESS=false
       - SHOW_ONLY_FAILURE=false
+      
+      # Adaptive Backoff & Circuit Breaker (NEW!)
+      - ENABLE_ADAPTIVE_BACKOFF=true
+      - BACKOFF_MIN_SECONDS=10
+      - BACKOFF_MAX_SECONDS=300
+      - CIRCUIT_BREAKER_THRESHOLD=5
+      - CIRCUIT_BREAKER_COOLDOWN_SECONDS=60
     volumes:
       - ./logs:/logs
     ports:

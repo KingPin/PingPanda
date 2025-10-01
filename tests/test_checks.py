@@ -3,6 +3,7 @@ import socket
 import time
 
 import pingpanda_core.checks as checks_module
+from pingpanda_core.backoff import FailureTracker
 from pingpanda_core.checks import CheckDependencies, DNSCheck, PingCheck, SSLCheck, WebsiteCheck
 
 
@@ -30,6 +31,7 @@ class DummyApp:
         self.ssl_critical_days = 7
         self.flap_threshold = 3
         self.flap_window_seconds = 300
+        self.failure_tracker = FailureTracker(enable_backoff=False)
 
     def _should_log_result(self, is_success):
         return True

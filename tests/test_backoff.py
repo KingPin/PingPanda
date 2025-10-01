@@ -19,14 +19,14 @@ def test_backoff_after_failure():
     # First check allowed
     assert tracker.should_check("test-target") is True
 
-    # Record failure
+    # Record failure (this also performs a check internally)
     tracker.record_result("test-target", False)
 
-    # Immediate recheck should be blocked
+    # Immediate recheck should be blocked (we're in backoff)
     assert tracker.should_check("test-target") is False
 
     # After backoff period, should be allowed
-    time.sleep(0.15)
+    time.sleep(0.11)  # Just over min_backoff
     assert tracker.should_check("test-target") is True
 
 
@@ -34,28 +34,29 @@ def test_circuit_breaker_opens():
     """Circuit should open after threshold failures."""
     tracker = FailureTracker(
         enable_backoff=True,
-        min_backoff_seconds=0.1,
+        min_backoff_seconds=0.05,
         circuit_threshold=3,
         circuit_cooldown_seconds=0.2,
     )
 
     target = "failing-target"
 
-    # Record multiple failures
-    for _ in range(3):
+    # Record multiple failures to hit threshold
+    for i in range(3):
         assert tracker.should_check(target) is True
         tracker.record_result(target, False)
-        time.sleep(0.15)  # Wait out backoff between attempts
+        if i < 2:  # Don't wait after last failure
+            time.sleep(0.06)  # Wait out backoff between attempts
 
     # Circuit should now be open
     assert tracker.should_check(target) is False
 
-    # Even after backoff, circuit remains open during cooldown
-    time.sleep(0.15)
+    # Even after short wait, circuit remains open during cooldown
+    time.sleep(0.1)
     assert tracker.should_check(target) is False
 
-    # After cooldown, circuit tries to close (half-open state)
-    time.sleep(0.1)
+    # After full cooldown, circuit tries to close (half-open state)
+    time.sleep(0.11)  # Total wait now exceeds 0.2s cooldown
     assert tracker.should_check(target) is True
 
 
