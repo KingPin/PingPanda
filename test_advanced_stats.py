@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""
-Test script to demonstrate PingPanda's advanced statistics features.
-"""
+"""Manual advanced statistics demonstration for PingPanda."""
 
 import os
 import time
 import tempfile
+from importlib import import_module
+
+if os.environ.get("PYTEST_CURRENT_TEST"):
+    pytest = import_module("pytest")
+    pytest.skip("Manual integration demo; skipped during automated pytest runs.", allow_module_level=True)
+
 from pingpanda import PingPanda
 
 def test_advanced_stats():
