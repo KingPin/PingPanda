@@ -2,14 +2,13 @@
 """Manual advanced statistics demonstration for PingPanda."""
 
 import os
-import time
-import tempfile
 
 from pingpanda import PingPanda
 
+
 def demo_advanced_stats():
     """Test the advanced statistics functionality."""
-    
+
     # Create a temporary config for testing
     config = {
         'check_interval': 5,
@@ -21,7 +20,7 @@ def demo_advanced_stats():
         'slack_webhook': '',
         'teams_webhook': '',
         'discord_webhook': '',
-        
+
         # Advanced statistics configuration
         'enable_advanced_stats': True,
         'summary_interval': 30,  # Show summary every 30 seconds
@@ -34,7 +33,7 @@ def demo_advanced_stats():
         'persist_stats': True,
         'stats_persistence_file': 'test_pingpanda_stats.pkl'
     }
-    
+
     print("=== PingPanda Advanced Statistics Test ===")
     print("This test will:")
     print("1. Enable advanced ping statistics tracking")
@@ -48,39 +47,41 @@ def demo_advanced_stats():
     print()
     print("Press Ctrl+C to stop the test and see final statistics...")
     print()
-    
+
     # Create monitor with advanced stats
     monitor = PingPanda(config)
-    
+
     try:
         # Run for a short test period
         monitor.run()
     except KeyboardInterrupt:
         print("\nTest completed!")
-        
+
         # Show final statistics
         if hasattr(monitor, 'ip_stats') and monitor.ip_stats:
             print("\n=== Final Statistics Summary ===")
             for ip, stats in monitor.ip_stats.items():
-                availability = (stats.total_uptime / (stats.total_uptime + stats.total_downtime)) * 100 if (stats.total_uptime + stats.total_downtime) > 0 else 100
+                total_time = stats.total_uptime + stats.total_downtime
+                availability = (stats.total_uptime / total_time) * 100 if total_time > 0 else 100
                 status_emoji = "🟢" if stats.current_status == "up" else "🔴"
                 flap_indicator = " 🔄" if stats.is_flapping else ""
-                
+
                 print(f"{status_emoji} {ip}: {availability:.1f}% availability{flap_indicator}")
                 print(f"   Uptime: {stats.total_uptime:.1f}s, Downtime: {stats.total_downtime:.1f}s")
                 print(f"   Downtime events: {stats.downtime_events}")
-        
+
         # Check if log files were created
         if os.path.exists(config['stats_log_file']):
             print(f"\n✅ Statistics log created: {config['stats_log_file']}")
-        
+
         if os.path.exists(str(config['stats_persistence_file'])):
             print(f"✅ Statistics persistence file created: {config['stats_persistence_file']}")
-        
+
         print("\nTest files created in current directory:")
         print("- test_pingpanda_stats.csv (statistics log)")
         print("- test_pingpanda_stats.pkl (persistence data)")
         print("\nYou can examine these files to see the detailed statistics data.")
+
 
 if __name__ == "__main__":
     demo_advanced_stats()
