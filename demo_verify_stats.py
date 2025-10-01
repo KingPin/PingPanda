@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Simple test to verify advanced statistics functionality.
+Simple script to verify advanced statistics functionality.
 """
 
 import os
@@ -8,12 +8,6 @@ import sys
 sys.path.insert(0, '.')
 
 try:
-    if os.environ.get("PYTEST_CURRENT_TEST"):
-        from importlib import import_module
-
-        pytest = import_module("pytest")
-        pytest.skip("Manual verification script; skipped during automated pytest runs.", allow_module_level=True)
-
     from pingpanda import PingPanda
     print("✅ Successfully imported PingPanda")
     
@@ -55,7 +49,7 @@ try:
         
     print("\n🎉 All advanced statistics features are properly integrated!")
     print("\nTo see the features in action, run:")
-    print("python3 test_advanced_stats.py")
+    print("python3 demo_advanced_stats.py")
     
 except Exception as e:
     print(f"❌ Error: {e}")

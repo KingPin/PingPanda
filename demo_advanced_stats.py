@@ -5,17 +5,9 @@ import os
 import time
 import tempfile
 
-try:
-    import pytest  # type: ignore
-except ModuleNotFoundError:  # pragma: no cover - pytest always available under tests
-    pytest = None
-
-if pytest is not None:
-    pytestmark = pytest.mark.skip(reason="Manual integration demo; skipped during automated pytest runs.")
-
 from pingpanda import PingPanda
 
-def test_advanced_stats():
+def demo_advanced_stats():
     """Test the advanced statistics functionality."""
     
     # Create a temporary config for testing
@@ -91,4 +83,4 @@ def test_advanced_stats():
         print("\nYou can examine these files to see the detailed statistics data.")
 
 if __name__ == "__main__":
-    test_advanced_stats()
+    demo_advanced_stats()
