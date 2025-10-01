@@ -6,12 +6,14 @@ on:
       - 'Dockerfile'
       - 'pingpanda.py'
       - 'requirements.txt'
+      - 'pingpanda_core/**'
       - '.github/workflows/docker-image.yml'
   pull_request:
     paths:
       - 'Dockerfile'
       - 'pingpanda.py'
       - 'requirements.txt'
+      - 'pingpanda_core/**'
       - '.github/workflows/docker-image.yml'
   release:
     types: [published]
@@ -34,9 +36,13 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install flake8 pytest
+          pip install flake8 pytest pytest-timeout
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          pip install pythonping requests slack-sdk
+
+      - name: Run tests
+        run: |
+          export PYTHONPATH="${PYTHONPATH}:${GITHUB_WORKSPACE}"
+          pytest -q
 
       - name: Lint with flake8
         run: |
@@ -60,11 +66,6 @@ jobs:
           fetch-depth: 0  # Fetch all history for proper versioning
 
       # Set environment variable for build info
-      - name: Set build info
-        run: |
-          echo "SHOULD_PUSH=${{ github.ref == 'refs/heads/main' || github.event_name == 'release' }}" >> $GITHUB_ENV
-          echo "BUILD_SOURCE=${{ github.event_name == 'pull_request' && 'PR' || 'COMMIT' }}" >> $GITHUB_ENV
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
         with:
@@ -73,25 +74,27 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Convert repository info to lowercase
-        id: repo_info
-        run: |
-          echo "REPO_OWNER=$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
-          echo "REPO_NAME=$(echo ${{ github.event.repository.name }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
-
       - name: Log into GitHub Container Registry
-        if: env.SHOULD_PUSH == 'true'
+        if: github.ref == 'refs/heads/main' || github.event_name == 'release'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Prepare image metadata
+        id: repo
+        run: |
+          owner_lower=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
+          short_sha=$(echo '${{ github.sha }}' | cut -c1-7)
+          echo "owner_lower=$owner_lower" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$short_sha" >> "$GITHUB_OUTPUT"
+
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ env.REPO_OWNER }}/pingpanda
+          images: ghcr.io/${{ steps.repo.outputs.owner_lower }}/pingpanda
           tags: |
             # Always add the git SHA
             type=sha,format=short
@@ -121,16 +124,13 @@ jobs:
           cache-to: type=gha,mode=max
 
       # Generate short SHA for use in Trivy scanner
-      - name: Get short SHA
-        id: sha
-        run: echo "SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_ENV
 
       - name: Run Trivy vulnerability scanner
         if: github.ref == 'refs/heads/main' || github.event_name == 'release'
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: image
-          image-ref: ghcr.io/${{ env.REPO_OWNER }}/pingpanda:sha-${{ env.SHORT_SHA }}
+          image-ref: ghcr.io/${{ steps.repo.outputs.owner_lower }}/pingpanda:sha-${{ steps.repo.outputs.short_sha }}
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'MEDIUM,CRITICAL,HIGH'
