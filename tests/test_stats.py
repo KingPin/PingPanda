@@ -24,15 +24,20 @@ def test_update_ip_detects_flapping(tmp_path):
     first = manager.update_ip("1.1.1.1", True)
     assert first.status_changed is True
     assert first.current_status == "up"
+    assert first.is_flapping is False
+    assert first.flapping_changed is False
 
     second = manager.update_ip("1.1.1.1", False)
     assert second.status_changed is True
     assert second.current_status == "down"
+    assert second.is_flapping is True
+    assert second.flapping_changed is True
 
     third = manager.update_ip("1.1.1.1", True)
     assert third.status_changed is True
-    assert third.flapping_changed is True
+    assert third.current_status == "up"
     assert third.is_flapping is True
+    assert third.flapping_changed is False  # Still flapping, no change
 
 
 def test_output_summary_logs_stats(tmp_path, caplog):
