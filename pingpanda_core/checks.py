@@ -38,6 +38,12 @@ class DNSCheck:
             app.logger.info("Starting DNS resolution checks...")
 
         for domain in app.domains:
+            # Check if we should skip this target due to backoff/circuit breaker
+            if not app.failure_tracker.should_check(f"dns:{domain}"):
+                if app.verbose:
+                    app.logger.debug("Skipping DNS check for %s (in backoff/circuit open)", domain)
+                continue
+
             start_time = time.perf_counter()
             success = False
 
@@ -70,6 +76,9 @@ class DNSCheck:
                     if app.verbose:
                         app.logger.debug("DNS Resolution attempt %s for %s failed: %s", attempt + 1, domain, exc)
                     time.sleep(1)
+
+            # Record the result in the failure tracker
+            app.failure_tracker.record_result(f"dns:{domain}", success)
 
             if success:
                 continue
@@ -110,6 +119,12 @@ class PingCheck:
             app.logger.info("Starting ping checks...")
 
         for ip in app.ping_ips:
+            # Check if we should skip this target due to backoff/circuit breaker
+            if not app.failure_tracker.should_check(f"ping:{ip}"):
+                if app.verbose:
+                    app.logger.debug("Skipping ping check for %s (in backoff/circuit open)", ip)
+                continue
+
             success = False
             start_time = time.perf_counter()
 
@@ -146,6 +161,9 @@ class PingCheck:
                     if app.verbose:
                         app.logger.debug("Ping attempt %s to %s failed: %s", attempt + 1, ip, exc)
                     time.sleep(1)
+
+            # Record the result in the failure tracker
+            app.failure_tracker.record_result(f"ping:{ip}", success)
 
             if success:
                 continue
@@ -207,13 +225,21 @@ class WebsiteCheck:
             if not website:
                 continue
 
+            # Check if we should skip this target due to backoff/circuit breaker
+            if not app.failure_tracker.should_check(f"website:{website}"):
+                if app.verbose:
+                    app.logger.debug("Skipping website check for %s (in backoff/circuit open)", website)
+                continue
+
             start_time = time.perf_counter()
+            success = False
             try:
                 response = requests.get(website, timeout=10)
                 elapsed = time.perf_counter() - start_time
                 duration_ms = elapsed * 1000
 
                 if response.status_code in app.success_http_codes:
+                    success = True
                     if app._should_log_result(True):
                         app.logger.info(
                             "Website check for %s: PASS (HTTP Status: %s, Time: %.2fms)",
@@ -265,6 +291,9 @@ class WebsiteCheck:
                     target=website,
                 )
 
+            # Record the result in the failure tracker
+            app.failure_tracker.record_result(f"website:{website}", success)
+
 
 class SSLCheck:
     def __init__(self, deps: CheckDependencies):
@@ -283,6 +312,13 @@ class SSLCheck:
             app.logger.info("Starting SSL certificate checks...")
 
         for domain in app.ssl_check_domains:
+            # Check if we should skip this target due to backoff/circuit breaker
+            if not app.failure_tracker.should_check(f"ssl:{domain}"):
+                if app.verbose:
+                    app.logger.debug("Skipping SSL check for %s (in backoff/circuit open)", domain)
+                continue
+
+            success = False
             try:
                 host, port = self._parse_domain(domain)
                 days_remaining = self._get_ssl_days_remaining(host, port)
@@ -302,6 +338,7 @@ class SSLCheck:
                 else:
                     message = f"SSL certificate for {domain} is valid for {days_remaining} more days"
                     level = "ok"
+                    success = True
 
                 self._handle_result(domain, days_remaining, message, level)
             except Exception as exc:  # pylint: disable=broad-except
@@ -318,6 +355,9 @@ class SSLCheck:
                     check_type="SSL",
                     target=domain,
                 )
+
+            # Record the result in the failure tracker
+            app.failure_tracker.record_result(f"ssl:{domain}", success)
 
     def _parse_domain(self, domain: str) -> tuple[str, int]:
         if ":" in domain:
