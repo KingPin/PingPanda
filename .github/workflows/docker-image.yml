@@ -40,7 +40,9 @@ jobs:
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       - name: Run tests
-        run: pytest -q
+        run: |
+          export PYTHONPATH="${PYTHONPATH}:${GITHUB_WORKSPACE}"
+          pytest -q
 
       - name: Lint with flake8
         run: |
