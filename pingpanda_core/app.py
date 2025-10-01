@@ -15,6 +15,7 @@ from .checks import CheckDependencies, DNSCheck, PingCheck, SSLCheck, WebsiteChe
 from .notifications import NotificationManager, NotificationSettings
 from .persistence import PersistenceManager, StatsPersistenceSettings
 from .stats import StatsManager, StatsSettings
+from .backoff import FailureTracker
 
 
 class NormalizedConfig(dict):
@@ -195,6 +196,12 @@ class PingPanda:
         self.enable_prometheus = get_bool("enable_prometheus", False)
         self.prometheus_port = get_int("prometheus_port", 9090)
 
+        self.enable_adaptive_backoff = get_bool("enable_adaptive_backoff", True)
+        self.backoff_min_seconds = max(1.0, get_float("backoff_min_seconds", 10.0))
+        self.backoff_max_seconds = max(self.backoff_min_seconds, get_float("backoff_max_seconds", 300.0))
+        self.circuit_breaker_threshold = max(1, get_int("circuit_breaker_threshold", 5))
+        self.circuit_breaker_cooldown = max(10.0, get_float("circuit_breaker_cooldown_seconds", 60.0))
+
     def _setup_prometheus(self) -> None:
         if not self.enable_prometheus:
             return
@@ -306,6 +313,14 @@ class PingPanda:
 
         self.last_summary_time: Optional[datetime] = datetime.now() if self.enable_advanced_stats else None
 
+        self.failure_tracker = FailureTracker(
+            enable_backoff=self.enable_adaptive_backoff,
+            min_backoff_seconds=self.backoff_min_seconds,
+            max_backoff_seconds=self.backoff_max_seconds,
+            circuit_threshold=self.circuit_breaker_threshold,
+            circuit_cooldown_seconds=self.circuit_breaker_cooldown,
+        )
+
         self._check_deps = CheckDependencies(app=self, stats=self.stats_manager)
         self._dns_check = DNSCheck(self._check_deps)
         self._ping_check = PingCheck(self._check_deps)
@@ -415,6 +430,12 @@ class PingPanda:
             self.logger.warning("Filtering: Both success and failure filters enabled - no results will be shown")
         else:
             self.logger.info("Filtering: Showing ALL results")
+
+        if self.enable_adaptive_backoff:
+            self.logger.info("Adaptive backoff: ENABLED (min: %ss, max: %ss)", self.backoff_min_seconds, self.backoff_max_seconds)
+            self.logger.info("Circuit breaker: threshold=%s failures, cooldown=%ss", self.circuit_breaker_threshold, self.circuit_breaker_cooldown)
+        else:
+            self.logger.info("Adaptive backoff: DISABLED")
 
         self.logger.info("===============================")
 
