@@ -4,11 +4,14 @@
 import os
 import time
 import tempfile
-from importlib import import_module
 
-if os.environ.get("PYTEST_CURRENT_TEST"):
-    pytest = import_module("pytest")
-    pytest.skip("Manual integration demo; skipped during automated pytest runs.", allow_module_level=True)
+try:
+    import pytest  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover - pytest always available under tests
+    pytest = None
+
+if pytest is not None:
+    pytestmark = pytest.mark.skip(reason="Manual integration demo; skipped during automated pytest runs.")
 
 from pingpanda import PingPanda
 

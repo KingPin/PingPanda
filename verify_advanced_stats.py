@@ -8,6 +8,12 @@ import sys
 sys.path.insert(0, '.')
 
 try:
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        from importlib import import_module
+
+        pytest = import_module("pytest")
+        pytest.skip("Manual verification script; skipped during automated pytest runs.", allow_module_level=True)
+
     from pingpanda import PingPanda
     print("✅ Successfully imported PingPanda")
     
