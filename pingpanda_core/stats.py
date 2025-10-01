@@ -298,16 +298,15 @@ class StatsManager:
             new_status = "up" if success else "down"
             status_changed = stats.update_status(new_status)
 
+            flapping_changed = False
             if status_changed and self.settings.flap_threshold > 0:
                 was_flapping = stats.is_flapping
                 stats.check_flapping(self.settings.flap_threshold, self.settings.flap_window_seconds)
+                flapping_changed = stats.is_flapping != was_flapping
                 if stats.is_flapping and not was_flapping:
                     self.logger.warning(f"Flapping detected for IP {ip}")
                 elif not stats.is_flapping and was_flapping:
                     self.logger.info(f"Flapping resolved for IP {ip}")
-                flapping_changed = stats.is_flapping != was_flapping
-            else:
-                flapping_changed = False
 
             return StatsUpdateResult(
                 status_changed=status_changed,
@@ -347,57 +346,60 @@ class StatsManager:
             }
 
     def output_summary(self) -> None:
+        self.logger.info("=== PingPanda IP Statistics Summary ===")
+        overall_stats = self.get_overall_stats()
+        self.logger.info(f"Overall Status: {overall_stats['ips_up']}/{overall_stats['total_ips']} IPs UP")
+        self.logger.info(f"Overall Availability: {overall_stats['overall_availability']:.2f}%")
+        self.logger.info(f"Total Uptime: {overall_stats['total_uptime']:.1f}s")
+        self.logger.info(f"Total Downtime: {overall_stats['total_downtime']:.1f}s")
+        self.logger.info(f"Total Downtime Events: {overall_stats['total_downtime_events']}")
+        if overall_stats['total_flapping_ips'] > 0:
+            self.logger.warning(f"Flapping IPs: {overall_stats['total_flapping_ips']}")
+
+        self.logger.info("")
+        self.logger.info("Per-IP Statistics:")
+
         with self.stats_lock:
-            self.logger.info("=== PingPanda IP Statistics Summary ===")
-            overall_stats = self.get_overall_stats()
-            self.logger.info(f"Overall Status: {overall_stats['ips_up']}/{overall_stats['total_ips']} IPs UP")
-            self.logger.info(f"Overall Availability: {overall_stats['overall_availability']:.2f}%")
-            self.logger.info(f"Total Uptime: {overall_stats['total_uptime']:.1f}s")
-            self.logger.info(f"Total Downtime: {overall_stats['total_downtime']:.1f}s")
-            self.logger.info(f"Total Downtime Events: {overall_stats['total_downtime_events']}")
-            if overall_stats['total_flapping_ips'] > 0:
-                self.logger.warning(f"Flapping IPs: {overall_stats['total_flapping_ips']}")
+            ip_stats_snapshot = dict(self.ip_stats.items())
 
-            self.logger.info("")
-            self.logger.info("Per-IP Statistics:")
+        for ip, stats in sorted(ip_stats_snapshot.items()):
+            status_emoji = "🟢" if stats.current_status == "up" else "🔴"
+            flap_indicator = " 🔄" if stats.is_flapping else ""
+            availability = self._calculate_availability(stats.total_uptime, stats.total_downtime)
+            current_duration = stats.get_current_status_duration()
 
-            for ip, stats in sorted(self.ip_stats.items()):
-                status_emoji = "🟢" if stats.current_status == "up" else "🔴"
-                flap_indicator = " 🔄" if stats.is_flapping else ""
-                availability = self._calculate_availability(stats.total_uptime, stats.total_downtime)
-                current_duration = stats.get_current_status_duration()
+            self.logger.info(f"  {status_emoji} {ip} - {stats.current_status.upper()}{flap_indicator}")
+            self.logger.info(
+                f"    Availability: {availability:.2f}% | Current Status: {current_duration:.1f}s"
+            )
+            self.logger.info(
+                f"    Uptime: {stats.total_uptime:.1f}s | Downtime: {stats.total_downtime:.1f}s"
+            )
+            self.logger.info(
+                f"    Downtime Events: {stats.downtime_events} | Last Change: {stats.last_status_change.strftime('%H:%M:%S')}"
+            )
 
-                self.logger.info(f"  {status_emoji} {ip} - {stats.current_status.upper()}{flap_indicator}")
-                self.logger.info(
-                    f"    Availability: {availability:.2f}% | Current Status: {current_duration:.1f}s"
-                )
-                self.logger.info(
-                    f"    Uptime: {stats.total_uptime:.1f}s | Downtime: {stats.total_downtime:.1f}s"
-                )
-                self.logger.info(
-                    f"    Downtime Events: {stats.downtime_events} | Last Change: {stats.last_status_change.strftime('%H:%M:%S')}"
-                )
+            if stats.downtime_periods:
+                recent_outages = stats.downtime_periods[-3:]
+                self.logger.info(f"    Recent Outages: {len(recent_outages)} (showing last 3)")
+                for i, period in enumerate(recent_outages):
+                    start = period["start"].strftime('%H:%M:%S')
+                    end = period["end"].strftime('%H:%M:%S') if "end" in period else "ongoing"
+                    duration = (
+                        (period["end"] - period["start"]).total_seconds()
+                        if "end" in period
+                        else current_duration
+                    )
+                    self.logger.info(f"      {i + 1}. {start} - {end} ({duration:.1f}s)")
 
-                if stats.downtime_periods:
-                    recent_outages = stats.downtime_periods[-3:]
-                    self.logger.info(f"    Recent Outages: {len(recent_outages)} (showing last 3)")
-                    for i, period in enumerate(recent_outages):
-                        start = period["start"].strftime('%H:%M:%S')
-                        end = period["end"].strftime('%H:%M:%S') if "end" in period else "ongoing"
-                        duration = (
-                            (period["end"] - period["start"]).total_seconds()
-                            if "end" in period
-                            else current_duration
-                        )
-                        self.logger.info(f"      {i + 1}. {start} - {end} ({duration:.1f}s)")
+        self.logger.info("==========================================")
 
-            self.logger.info("==========================================")
+        if self.stats_logger:
+            with self.stats_lock:
+                ip_stats_snapshot_for_log = dict(self.ip_stats.items())
+            self.stats_logger.log_stats(ip_stats_snapshot_for_log, overall_stats)
 
-            if self.stats_logger:
-                overall_stats = self.get_overall_stats()
-                self.stats_logger.log_stats(self.ip_stats, overall_stats)
-
-            self.last_summary_time = datetime.now()
+        self.last_summary_time = datetime.now()
 
     def load(self) -> None:
         if not (self.settings.enable and self.settings.persist and self.persistence):
