@@ -175,3 +175,4 @@ docker-compose logs -f pingpanda
 - **Notifications**: Test by temporarily setting `ALERT_THRESHOLD=1`
 - **Prometheus**: Verify metrics at `http://localhost:9090/metrics` when enabled
 - **Coverage**: Add tests in `tests/` directory for any new features
+- **Backoff timing**: When testing backoff/circuit breaker logic, ensure `last_check_time` is only updated when checks occur (in `should_check()`), not when results are recorded (in `record_result()`)

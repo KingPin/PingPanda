@@ -28,6 +28,7 @@ class TargetState:
         max_backoff: float,
         circuit_threshold: int,
         circuit_cooldown: float,
+        update_check_time: bool = True,
     ) -> bool:
         """Determine if we should attempt to check this target."""
         # If circuit is open, check if cooldown period has passed
@@ -36,6 +37,8 @@ class TargetState:
                 # Try to close circuit (half-open state)
                 self.is_circuit_open = False
                 self.backoff_multiplier = 1.0
+                if update_check_time:
+                    self.last_check_time = current_time
                 return True
             # Still in cooldown
             return False
@@ -48,13 +51,16 @@ class TargetState:
                 # Still in backoff period
                 return False
 
+        # Update check time when we allow a check
+        if update_check_time:
+            self.last_check_time = current_time
+            
         return True
 
     def record_success(self, current_time: float) -> None:
         """Record a successful check."""
         self.consecutive_failures = 0
         self.last_success_time = current_time
-        self.last_check_time = current_time
         self.is_circuit_open = False
         self.circuit_opened_at = None
         self.backoff_multiplier = 1.0
@@ -62,7 +68,6 @@ class TargetState:
     def record_failure(self, current_time: float, circuit_threshold: int) -> None:
         """Record a failed check and potentially open the circuit."""
         self.consecutive_failures += 1
-        self.last_check_time = current_time
 
         # Increase backoff exponentially
         self.backoff_multiplier = min(self.backoff_multiplier * 2, 64.0)
