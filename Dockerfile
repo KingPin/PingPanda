@@ -1,4 +1,4 @@
-FROM python:alpine
+FROM python:3.13-alpine
 
 LABEL org.opencontainers.image.source="https://github.com/KingPin/PingPanda"
 LABEL org.opencontainers.image.authors="KingPin"
