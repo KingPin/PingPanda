@@ -15,7 +15,7 @@ class TargetState:
 
     target: str
     consecutive_failures: int = 0
-    last_check_time: float = field(default_factory=time.time)
+    last_check_time: Optional[float] = None
     last_success_time: Optional[float] = None
     is_circuit_open: bool = False
     circuit_opened_at: Optional[float] = None
@@ -28,7 +28,6 @@ class TargetState:
         max_backoff: float,
         circuit_threshold: int,
         circuit_cooldown: float,
-        update_check_time: bool = True,
     ) -> bool:
         """Determine if we should attempt to check this target."""
         # If circuit is open, check if cooldown period has passed
@@ -37,30 +36,25 @@ class TargetState:
                 # Try to close circuit (half-open state)
                 self.is_circuit_open = False
                 self.backoff_multiplier = 1.0
-                if update_check_time:
-                    self.last_check_time = current_time
                 return True
             # Still in cooldown
             return False
 
         # Apply exponential backoff based on consecutive failures
-        if self.consecutive_failures > 0:
+        if self.consecutive_failures > 0 and self.last_check_time is not None:
             backoff_time = min(min_backoff * self.backoff_multiplier, max_backoff)
             time_since_last = current_time - self.last_check_time
             if time_since_last < backoff_time:
                 # Still in backoff period
                 return False
 
-        # Update check time when we allow a check
-        if update_check_time:
-            self.last_check_time = current_time
-            
         return True
 
     def record_success(self, current_time: float) -> None:
         """Record a successful check."""
         self.consecutive_failures = 0
         self.last_success_time = current_time
+        self.last_check_time = current_time
         self.is_circuit_open = False
         self.circuit_opened_at = None
         self.backoff_multiplier = 1.0
@@ -68,15 +62,15 @@ class TargetState:
     def record_failure(self, current_time: float, circuit_threshold: int) -> None:
         """Record a failed check and potentially open the circuit."""
         self.consecutive_failures += 1
-
-        # Increase backoff exponentially
-        self.backoff_multiplier = min(self.backoff_multiplier * 2, 64.0)
+        self.last_check_time = current_time
 
         # Open circuit if threshold exceeded
         if self.consecutive_failures >= circuit_threshold:
             if not self.is_circuit_open:
                 self.is_circuit_open = True
                 self.circuit_opened_at = current_time
+        # Don't increase backoff multiplier - keep it at 1.0 until circuit opens
+        # This allows the circuit breaker threshold to be reached without exponential backoff blocking checks
 
 
 class FailureTracker:
@@ -146,7 +140,11 @@ class FailureTracker:
                 "consecutive_failures": state.consecutive_failures,
                 "is_circuit_open": state.is_circuit_open,
                 "backoff_multiplier": state.backoff_multiplier,
-                "last_check": datetime.fromtimestamp(state.last_check_time).isoformat(),
+                "last_check": (
+                    datetime.fromtimestamp(state.last_check_time).isoformat()
+                    if state.last_check_time is not None
+                    else None
+                ),
                 "last_success": (
                     datetime.fromtimestamp(state.last_success_time).isoformat()
                     if state.last_success_time
