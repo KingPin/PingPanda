@@ -114,4 +114,3 @@ def test_get_state_returns_info():
     state = tracker.get_state(target)
     assert state is not None
     assert state["consecutive_failures"] == 1
-

@@ -432,8 +432,16 @@ class PingPanda:
             self.logger.info("Filtering: Showing ALL results")
 
         if self.enable_adaptive_backoff:
-            self.logger.info("Adaptive backoff: ENABLED (min: %ss, max: %ss)", self.backoff_min_seconds, self.backoff_max_seconds)
-            self.logger.info("Circuit breaker: threshold=%s failures, cooldown=%ss", self.circuit_breaker_threshold, self.circuit_breaker_cooldown)
+            self.logger.info(
+                "Adaptive backoff: ENABLED (min: %ss, max: %ss)",
+                self.backoff_min_seconds,
+                self.backoff_max_seconds
+            )
+            self.logger.info(
+                "Circuit breaker: threshold=%s failures, cooldown=%ss",
+                self.circuit_breaker_threshold,
+                self.circuit_breaker_cooldown
+            )
         else:
             self.logger.info("Adaptive backoff: DISABLED")
 
