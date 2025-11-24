@@ -166,7 +166,7 @@ class PingCheck:
                     app.ping_status.labels(target=ip).set(1)
                     app.ping_response_time.labels(target=ip).observe(delay)
 
-                self._update_stats(ip, True)
+                await self._update_stats(ip, True)
 
                 await app.send_notification(
                     f"Ping successful in {duration_ms:.2f}ms",
@@ -193,7 +193,7 @@ class PingCheck:
                 app.ping_status.labels(target=ip).set(0)
                 app.ping_errors.labels(target=ip).inc()
 
-            self._update_stats(ip, False)
+            await self._update_stats(ip, False)
 
             await app.send_notification(
                 f"Failed to ping host after {app.retry_count} attempts",
@@ -202,21 +202,19 @@ class PingCheck:
                 target=ip,
             )
 
-    def _update_stats(self, ip: str, success: bool) -> None:
+    async def _update_stats(self, ip: str, success: bool) -> None:
         if not self.stats:
             return
 
         result: StatsUpdateResult = self.stats.update_ip(ip, success)
 
         if result.flapping_changed and result.is_flapping:
-            # We can't easily await here without making update_stats async or firing a task
-            # Since this is a side effect, we can create a task
-            asyncio.create_task(self.app.send_notification(
+            await self.app.send_notification(
                 f"IP {ip} is flapping (>{self.app.flap_threshold} status changes in {self.app.flap_window_seconds}s)",
                 status="error",
                 check_type="Flapping",
                 target=ip,
-            ))
+            )
         elif result.status_changed and success and not result.is_flapping:
             self.app.logger.info(
                 "IP %s recovered (was down for %.1fs)",
