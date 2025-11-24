@@ -461,7 +461,7 @@ class PingPanda:
 
         # Initialize async resources
         self.http_session = aiohttp.ClientSession()
-        self.dns_resolver = aiodns.DNSResolver(loop=asyncio.get_running_loop())
+        self.dns_resolver = aiodns.DNSResolver()
 
         try:
             while True:

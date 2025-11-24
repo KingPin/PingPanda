@@ -63,7 +63,7 @@ class DNSCheck:
                 resolver = getattr(app, "dns_resolver", None)
                 if not resolver:
                     # Fallback if not initialized in app (though it should be)
-                    resolver = aiodns.DNSResolver(loop=asyncio.get_running_loop())
+                    resolver = aiodns.DNSResolver()
                 
                 await resolver.query(domain, 'A')
                 
