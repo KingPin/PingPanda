@@ -181,7 +181,7 @@ class NotificationManager:
         async with aiohttp.ClientSession() as session:
             for attempt in range(1, self.settings.retry_attempts + 1):
                 try:
-                    async with session.post(url, json=payload, headers=headers, timeout=5) as response:
+                    async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as response:
                         if response.status < 400:
                             return True
 
