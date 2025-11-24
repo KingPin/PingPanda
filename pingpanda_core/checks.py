@@ -149,14 +149,13 @@ class PingCheck:
             return
 
         success = False
-        start_time = time.perf_counter()
+        success = False
 
         for attempt in range(app.retry_count):
             try:
                 # aioping returns delay in seconds
                 delay = await aioping.ping(ip, timeout=2)
                 
-                elapsed = time.perf_counter() - start_time
                 duration_ms = delay * 1000
 
                 if app._should_log_result(True):
