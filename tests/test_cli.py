@@ -1,5 +1,5 @@
 import sys
-
+import asyncio
 import pingpanda
 
 
@@ -13,7 +13,7 @@ def test_main_invokes_monitor_with_config(monkeypatch, tmp_path):
         def __init__(self, config):
             captured["config"] = config
 
-        def run(self):
+        async def run(self):
             captured["ran"] = True
 
     monkeypatch.setenv("EXISTING", "value")

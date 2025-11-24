@@ -1,6 +1,7 @@
 import logging
-import socket
-import time
+import pytest
+import asyncio
+from unittest.mock import MagicMock, AsyncMock
 
 import pingpanda_core.checks as checks_module
 from pingpanda_core.backoff import FailureTracker
@@ -32,11 +33,13 @@ class DummyApp:
         self.flap_threshold = 3
         self.flap_window_seconds = 300
         self.failure_tracker = FailureTracker(enable_backoff=False)
+        self.http_session = None
+        self.dns_resolver = None
 
     def _should_log_result(self, is_success):
         return True
 
-    def send_notification(self, message, status, check_type, target):
+    async def send_notification(self, message, status, check_type, target):
         self.notifications.append(
             {
                 "message": message,
@@ -47,74 +50,87 @@ class DummyApp:
         )
 
 
-def test_dns_check_success(monkeypatch):
+@pytest.mark.asyncio
+async def test_dns_check_success(monkeypatch):
     app = DummyApp()
     app.enable_dns = True
     app.domains = ["example.com"]
 
-    monkeypatch.setattr(time, "sleep", lambda _: None)
-    monkeypatch.setattr(socket, "gethostbyname", lambda domain: "93.184.216.34")
+    # Mock aiodns resolver
+    mock_resolver = MagicMock()
+    # query is async
+    mock_resolver.query = AsyncMock(return_value="93.184.216.34")
+    app.dns_resolver = mock_resolver
 
-    DNSCheck(CheckDependencies(app=app, stats=None)).run()
+    await DNSCheck(CheckDependencies(app=app, stats=None)).run()
 
     assert len(app.notifications) == 1
     assert app.notifications[0]["status"] == "ok"
     assert app.notifications[0]["type"] == "DNS"
 
 
-def test_ping_check_failure(monkeypatch):
+@pytest.mark.asyncio
+async def test_ping_check_failure(monkeypatch):
     app = DummyApp()
     app.enable_ping = True
     app.ping_ips = ["1.1.1.1"]
 
-    monkeypatch.setattr(time, "sleep", lambda _: None)
+    # Mock aioping.ping to raise exception
+    monkeypatch.setattr(checks_module.aioping, "ping", AsyncMock(side_effect=Exception("Ping failed")))
+    monkeypatch.setattr(asyncio, "sleep", AsyncMock())
 
-    class FailingPing:
-        def success(self):
-            return False
-
-        @property
-        def rtt_avg_ms(self):
-            return 0.0
-
-    monkeypatch.setattr(checks_module.pythonping, "ping", lambda *args, **kwargs: FailingPing())
-
-    PingCheck(CheckDependencies(app=app, stats=None)).run()
+    await PingCheck(CheckDependencies(app=app, stats=None)).run()
 
     assert len(app.notifications) == 1
     assert app.notifications[0]["status"] == "error"
     assert app.notifications[0]["type"] == "Ping"
 
 
-def test_website_check_non_success(monkeypatch):
+@pytest.mark.asyncio
+async def test_website_check_non_success(monkeypatch):
     app = DummyApp()
     app.enable_website_check = True
     app.websites = ["https://service"]
     app.success_http_codes = [200]
 
-    class FakeResponse:
-        def __init__(self, status_code):
-            self.status_code = status_code
+    # Mock aiohttp session
+    mock_session = MagicMock()
+    mock_response = AsyncMock()
+    mock_response.status = 500
+    # __aenter__ returns the response
+    mock_response.__aenter__.return_value = mock_response
+    mock_response.__aexit__.return_value = None
+    
+    mock_session.get.return_value = mock_response
+    app.http_session = mock_session
 
-    monkeypatch.setattr(checks_module.requests, "get", lambda *args, **kwargs: FakeResponse(500))
-
-    WebsiteCheck(CheckDependencies(app=app, stats=None)).run()
+    await WebsiteCheck(CheckDependencies(app=app, stats=None)).run()
 
     assert len(app.notifications) == 1
     assert app.notifications[0]["status"] == "error"
     assert app.notifications[0]["type"] == "Website"
 
 
-def test_ssl_check_warning(monkeypatch):
+@pytest.mark.asyncio
+async def test_ssl_check_warning(monkeypatch):
     app = DummyApp()
     app.enable_ssl_check = True
     app.ssl_check_domains = ["example.com"]
     app.ssl_warn_days = 30
     app.ssl_critical_days = 7
 
+    # Mock _get_ssl_days_remaining which is run in executor
+    # Since we mock the method on the instance, we can just make it return the value
+    # But run_in_executor calls it.
+    
+    # We can mock loop.run_in_executor
+    # Or we can mock SSLCheck._get_ssl_days_remaining
+    
+    # Since run_in_executor executes the function, if we mock the function it should work.
+    
     monkeypatch.setattr(SSLCheck, "_get_ssl_days_remaining", lambda self, host, port: 10)
 
-    SSLCheck(CheckDependencies(app=app, stats=None)).run()
+    await SSLCheck(CheckDependencies(app=app, stats=None)).run()
 
     assert len(app.notifications) == 1
     assert app.notifications[0]["status"] == "error"  # warning mapped to error notifications
