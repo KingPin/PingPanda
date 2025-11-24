@@ -347,7 +347,13 @@ class PingPanda:
             self._check_jobs.append(self._ssl_check.run)
 
     async def send_notification(self, message: str, status: str, check_type: str, target: str) -> None:
-        await self.notifier.notify(message, status=status, check_type=check_type, target=target)
+        await self.notifier.notify(
+            message,
+            status=status,
+            check_type=check_type,
+            target=target,
+            session=self.http_session,
+        )
 
     def _log_filter_notice(self, key: str, message: str, level: int = logging.INFO) -> None:
         if key not in self._filter_log_tracker:

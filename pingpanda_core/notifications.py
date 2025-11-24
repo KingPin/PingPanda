@@ -45,7 +45,14 @@ class NotificationManager:
         self.status_dir = persistence.status_dir
         self._failure_counts: Dict[str, int] = {}
 
-    async def notify(self, message: str, status: str, check_type: str, target: str) -> None:
+    async def notify(
+        self,
+        message: str,
+        status: str,
+        check_type: str,
+        target: str,
+        session: Optional[aiohttp.ClientSession] = None,
+    ) -> None:
         if not self._should_notify(check_type, target, status):
             return
 
@@ -64,15 +71,15 @@ class NotificationManager:
         tasks = []
         channels = []
         if self.settings.slack_webhook_url:
-            tasks.append(self._send_slack(title, formatted_message, status))
+            tasks.append(self._send_slack(title, formatted_message, status, session))
             channels.append("Slack")
 
         if self.settings.teams_webhook_url:
-            tasks.append(self._send_teams(title, formatted_message, status))
+            tasks.append(self._send_teams(title, formatted_message, status, session))
             channels.append("Teams")
 
         if self.settings.discord_webhook_url:
-            tasks.append(self._send_discord(title, formatted_message, status))
+            tasks.append(self._send_discord(title, formatted_message, status, session))
             channels.append("Discord")
 
         if not tasks:
@@ -110,7 +117,13 @@ class NotificationManager:
 
         return False
 
-    async def _send_slack(self, title: str, message: str, status: str) -> bool:
+    async def _send_slack(
+        self,
+        title: str,
+        message: str,
+        status: str,
+        session: Optional[aiohttp.ClientSession] = None,
+    ) -> bool:
         color = "good" if status == "ok" else "danger"
         payload: Dict[str, Any] = {
             "text": title,
@@ -135,9 +148,16 @@ class NotificationManager:
             self.settings.slack_webhook_url,
             payload,
             "Slack",
+            session=session,
         )
 
-    async def _send_teams(self, title: str, message: str, status: str) -> bool:
+    async def _send_teams(
+        self,
+        title: str,
+        message: str,
+        status: str,
+        session: Optional[aiohttp.ClientSession] = None,
+    ) -> bool:
         color = "00FF00" if status == "ok" else "FF0000"
         payload = {
             "@type": "MessageCard",
@@ -152,9 +172,16 @@ class NotificationManager:
             self.settings.teams_webhook_url,
             payload,
             "Microsoft Teams",
+            session=session,
         )
 
-    async def _send_discord(self, title: str, message: str, status: str) -> bool:
+    async def _send_discord(
+        self,
+        title: str,
+        message: str,
+        status: str,
+        session: Optional[aiohttp.ClientSession] = None,
+    ) -> bool:
         color = 65280 if status == "ok" else 16711680
         payload: Dict[str, Any] = {
             "embeds": [
@@ -175,6 +202,7 @@ class NotificationManager:
             self.settings.discord_webhook_url,
             payload,
             "Discord",
+            session=session,
         )
 
     async def _post_with_retries(
@@ -183,35 +211,50 @@ class NotificationManager:
         payload: Dict[str, Any],
         service: str,
         headers: Optional[Dict[str, str]] = None,
+        session: Optional[aiohttp.ClientSession] = None,
     ) -> bool:
         if not url:
             return False
 
-        async with aiohttp.ClientSession() as session:
-            for attempt in range(1, self.settings.retry_attempts + 1):
-                try:
-                    async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as response:
-                        if response.status < 400:
-                            return True
+        # Use provided session or create a temporary one
+        if session:
+            return await self._attempt_post(session, url, payload, service, headers)
+        
+        async with aiohttp.ClientSession() as local_session:
+            return await self._attempt_post(local_session, url, payload, service, headers)
 
-                        text = await response.text()
-                        self.logger.warning(
-                            "%s webhook returned status %s: %s",
-                            service,
-                            response.status,
-                            text[:500],
-                        )
-                except aiohttp.ClientError as exc:
+    async def _attempt_post(
+        self,
+        session: aiohttp.ClientSession,
+        url: str,
+        payload: Dict[str, Any],
+        service: str,
+        headers: Optional[Dict[str, str]],
+    ) -> bool:
+        for attempt in range(1, self.settings.retry_attempts + 1):
+            try:
+                async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as response:
+                    if response.status < 400:
+                        return True
+
+                    text = await response.text()
                     self.logger.warning(
-                        "%s notification attempt %s/%s failed: %s",
+                        "%s webhook returned status %s: %s",
                         service,
-                        attempt,
-                        self.settings.retry_attempts,
-                        exc,
+                        response.status,
+                        text[:500],
                     )
+            except aiohttp.ClientError as exc:
+                self.logger.warning(
+                    "%s notification attempt %s/%s failed: %s",
+                    service,
+                    attempt,
+                    self.settings.retry_attempts,
+                    exc,
+                )
 
-                if attempt < self.settings.retry_attempts and self.settings.retry_backoff > 0:
-                    await asyncio.sleep(self.settings.retry_backoff * attempt)
+            if attempt < self.settings.retry_attempts and self.settings.retry_backoff > 0:
+                await asyncio.sleep(self.settings.retry_backoff * attempt)
 
         self.logger.error(
             "Failed to send %s notification after %s attempts",
