@@ -24,7 +24,7 @@ async def test_notification_threshold_and_recovery(monkeypatch, tmp_path):
 
     sent_statuses = []
 
-    async def fake_slack(title, message, status):
+    async def fake_slack(title, message, status, session=None):
         sent_statuses.append(status)
         return True
 
