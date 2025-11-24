@@ -5,11 +5,14 @@ from __future__ import annotations
 import logging
 import os
 import time
+import asyncio
 from datetime import datetime
 from importlib import import_module
 from logging.handlers import RotatingFileHandler
-from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Optional, Set, Union
+
+import aiohttp
+import aiodns
 
 from .checks import CheckDependencies, DNSCheck, PingCheck, SSLCheck, WebsiteCheck
 from .notifications import NotificationManager, NotificationSettings
@@ -76,12 +79,15 @@ class PingPanda:
         self._setup_logging()
         self._load_config()
         self._setup_prometheus()
-        self._thread_pool: Optional[ThreadPoolExecutor] = None
         self._initialize_components()
         self.logger.info(
             "PingPanda initialized at %s",
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         )
+        
+        # Async resources
+        self.http_session: Optional[aiohttp.ClientSession] = None
+        self.dns_resolver: Optional[aiodns.DNSResolver] = None
 
     def _setup_logging(self) -> None:
         log_level = getattr(logging, str(self.config.get("log_level", "INFO")).upper(), logging.INFO)
@@ -328,10 +334,9 @@ class PingPanda:
         self._ssl_check = SSLCheck(self._check_deps)
 
         self._build_check_jobs()
-        self._setup_thread_pool()
 
     def _build_check_jobs(self) -> None:
-        self._check_jobs: List[Callable[[], None]] = []
+        self._check_jobs: List[Callable[[], Any]] = []
         if self.enable_dns:
             self._check_jobs.append(self._dns_check.run)
         if self.enable_ping:
@@ -341,17 +346,8 @@ class PingPanda:
         if self.enable_ssl_check:
             self._check_jobs.append(self._ssl_check.run)
 
-    def _setup_thread_pool(self) -> None:
-        worker_count = len(getattr(self, "_check_jobs", []))
-        if worker_count == 0:
-            self._thread_pool = None
-            return
-
-        self._thread_pool = ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="pingpanda-check")
-        self.logger.debug("Thread pool initialized with %s worker(s).", worker_count)
-
-    def send_notification(self, message: str, status: str, check_type: str, target: str) -> None:
-        self.notifier.notify(message, status=status, check_type=check_type, target=target)
+    async def send_notification(self, message: str, status: str, check_type: str, target: str) -> None:
+        await self.notifier.notify(message, status=status, check_type=check_type, target=target)
 
     def _log_filter_notice(self, key: str, message: str, level: int = logging.INFO) -> None:
         if key not in self._filter_log_tracker:
@@ -447,7 +443,7 @@ class PingPanda:
 
         self.logger.info("===============================")
 
-    def run(self) -> None:
+    async def run(self) -> None:
         self.output_status_summary()
 
         if self.enable_advanced_stats:
@@ -463,33 +459,37 @@ class PingPanda:
                     self.flap_window_seconds,
                 )
 
+        # Initialize async resources
+        self.http_session = aiohttp.ClientSession()
+        self.dns_resolver = aiodns.DNSResolver(loop=asyncio.get_running_loop())
+
         try:
             while True:
                 loop_start = time.time()
                 self._filter_log_tracker.clear()
 
-                if self._thread_pool and self._check_jobs:
-                    futures: List[Future[None]] = [self._thread_pool.submit(job) for job in self._check_jobs]
-                    for future in futures:
-                        future.result()
-                else:
-                    for job in self._check_jobs:
-                        job()
+                if self._check_jobs:
+                    # Run all check jobs concurrently
+                    tasks = [job() for job in self._check_jobs]
+                    await asyncio.gather(*tasks)
 
                 self._maybe_output_summary()
 
                 elapsed = time.time() - loop_start
                 remaining = max(0.0, self.interval - elapsed)
-                time.sleep(remaining)
+                await asyncio.sleep(remaining)
+        except asyncio.CancelledError:
+            self.logger.info("Shutting down...")
         except KeyboardInterrupt:
             self.logger.info("Shutting down gracefully...")
         finally:
-            self._cleanup()
+            await self._cleanup()
 
-    def _cleanup(self) -> None:
-        if self._thread_pool:
-            self._thread_pool.shutdown(wait=True)
-            self._thread_pool = None
+    async def _cleanup(self) -> None:
+        if self.http_session:
+            await self.http_session.close()
+            self.http_session = None
+        
         if self.stats_manager:
             self.stats_manager.save()
 

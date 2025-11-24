@@ -43,10 +43,14 @@ def load_config(args: argparse.Namespace) -> Dict[str, str]:
 
 
 def main() -> None:
+    import asyncio
     args = parse_args()
     config = load_config(args)
     monitor = PingPandaApp(config)
-    monitor.run()
+    try:
+        asyncio.run(monitor.run())
+    except KeyboardInterrupt:
+        pass
 
 
 PingPanda = PingPandaApp
