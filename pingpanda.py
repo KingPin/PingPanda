@@ -50,6 +50,7 @@ def main() -> None:
     try:
         asyncio.run(monitor.run())
     except KeyboardInterrupt:
+        # Graceful shutdown on Ctrl+C - cleanup is handled in app.run()
         pass
 
 
