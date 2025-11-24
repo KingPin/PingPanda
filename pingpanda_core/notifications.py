@@ -62,21 +62,30 @@ class NotificationManager:
         )
 
         tasks = []
+        channels = []
         if self.settings.slack_webhook_url:
             tasks.append(self._send_slack(title, formatted_message, status))
+            channels.append("Slack")
 
         if self.settings.teams_webhook_url:
             tasks.append(self._send_teams(title, formatted_message, status))
+            channels.append("Teams")
 
         if self.settings.discord_webhook_url:
             tasks.append(self._send_discord(title, formatted_message, status))
+            channels.append("Discord")
 
         if not tasks:
             self.logger.debug("Notification suppressed; no webhook endpoints configured")
             return
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        # We could log partial failures here if needed
+        
+        for idx, result in enumerate(results):
+            if isinstance(result, Exception):
+                self.logger.error(
+                    "Notification to %s failed: %r", channels[idx], result
+                )
 
     def _status_key(self, check_type: str, target: str) -> str:
         return f"{check_type}_{target}"
