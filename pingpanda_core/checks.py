@@ -267,7 +267,7 @@ class WebsiteCheck:
 
         try:
             try:
-                async with session.get(website, timeout=10) as response:
+                async with session.get(website, timeout=aiohttp.ClientTimeout(total=10)) as response:
                     elapsed = time.perf_counter() - start_time
                     duration_ms = elapsed * 1000
                     status_code = response.status
