@@ -149,7 +149,6 @@ class PingCheck:
             return
 
         success = False
-        success = False
 
         for attempt in range(app.retry_count):
             try:
