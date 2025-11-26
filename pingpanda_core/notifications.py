@@ -218,12 +218,12 @@ class NotificationManager:
 
         # Use provided session or create a temporary one
         if session:
-            return await self._attempt_post(session, url, payload, service, headers)
+            return await self._attempt_post_with_tenacity(session, url, payload, service, headers)
         
         async with aiohttp.ClientSession() as local_session:
-            return await self._attempt_post(local_session, url, payload, service, headers)
+            return await self._attempt_post_with_tenacity(local_session, url, payload, service, headers)
 
-    async def _attempt_post(
+    async def _attempt_post_with_tenacity(
         self,
         session: aiohttp.ClientSession,
         url: str,
@@ -231,34 +231,39 @@ class NotificationManager:
         service: str,
         headers: Optional[Dict[str, str]],
     ) -> bool:
-        for attempt in range(1, self.settings.retry_attempts + 1):
-            try:
-                async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as response:
-                    if response.status < 400:
-                        return True
+        from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential, retry_if_exception_type, before_sleep_log
 
-                    text = await response.text()
-                    self.logger.warning(
-                        "%s webhook returned status %s: %s",
-                        service,
-                        response.status,
-                        text[:500],
-                    )
-            except aiohttp.ClientError as exc:
-                self.logger.warning(
-                    "%s notification attempt %s/%s failed: %s",
-                    service,
-                    attempt,
-                    self.settings.retry_attempts,
-                    exc,
-                )
+        try:
+            async for attempt in AsyncRetrying(
+                stop=stop_after_attempt(self.settings.retry_attempts),
+                wait=wait_exponential(multiplier=self.settings.retry_backoff, min=1, max=10),
+                retry=retry_if_exception_type(aiohttp.ClientError),
+                before_sleep=before_sleep_log(self.logger, logging.WARNING),
+                reraise=True,
+            ):
+                with attempt:
+                    async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as response:
+                        if response.status < 400:
+                            return True
 
-            if attempt < self.settings.retry_attempts and self.settings.retry_backoff > 0:
-                await asyncio.sleep(self.settings.retry_backoff * attempt)
-
-        self.logger.error(
-            "Failed to send %s notification after %s attempts",
-            service,
-            self.settings.retry_attempts,
-        )
-        return False
+                        text = await response.text()
+                        self.logger.warning(
+                            "%s webhook returned status %s: %s",
+                            service,
+                            response.status,
+                            text[:500],
+                        )
+                        # Don't retry on 4xx errors (client error), only network errors or 5xx (if we wanted)
+                        # Currently only retrying on ClientError (network issues)
+                        return False
+        except aiohttp.ClientError as exc:
+            self.logger.error(
+                "Failed to send %s notification after %s attempts: %s",
+                service,
+                self.settings.retry_attempts,
+                exc,
+            )
+            return False
+        except Exception as exc:
+            self.logger.error("Unexpected error sending %s notification: %s", service, exc)
+            return False

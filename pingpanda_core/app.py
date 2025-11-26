@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+import random
 import asyncio
 from datetime import datetime
 from importlib import import_module
@@ -150,7 +151,8 @@ class PingPanda:
 
         self.interval = get_int("interval", 15)
         self.verbose = get_bool("verbose", False)
-        self.retry_count = get_int("retry_count", 3)
+        self.retry_count = int(self.config.get("RETRY_COUNT", 3))
+        self.jitter_seconds = float(self.config.get("JITTER_SECONDS", 5.0))
         self.success_http_codes = [
             int(code.strip())
             for code in str(self.config.get("success_http_codes", "200")).split(",")
@@ -483,9 +485,18 @@ class PingPanda:
 
                 elapsed = time.time() - loop_start
                 remaining = max(0.0, self.interval - elapsed)
-                await asyncio.sleep(remaining)
+                
+                # Add jitter to prevent thundering herd
+                jitter = random.uniform(0, self.jitter_seconds)
+                sleep_time = remaining + jitter
+                
+                if self.verbose:
+                    self.logger.debug("Sleeping for %.2fs (interval: %ss, jitter: %.2fs)", sleep_time, self.interval, jitter)
+                
+                await asyncio.sleep(sleep_time)
         except asyncio.CancelledError:
-            self.logger.info("Shutting down...")
+            self.logger.info("Main loop cancelled")
+            raise
         except KeyboardInterrupt:
             self.logger.info("Shutting down gracefully...")
         finally:
