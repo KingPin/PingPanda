@@ -40,10 +40,10 @@ docker-compose up -d
 
 PingPanda requires Python 3.10+ and the following dependencies:
 
-- `aiohttp>=3.9.0` - Async HTTP client for website checks
+- `aiohttp>=3.9.0` - Async HTTP client for website checks and notifications
 - `aiodns>=3.1.0` - Async DNS resolver
 - `aioping>=0.4.0` - Async ICMP ping
-- `slack-sdk>=3.34.0` - Slack notifications
+- `tenacity>=8.2.0` - Retry logic with backoff
 - `prometheus-client>=0.17.0` - Metrics export
 
 **Note**: ICMP ping requires elevated privileges. Run with `sudo` or grant `CAP_NET_RAW` capability:

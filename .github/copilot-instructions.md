@@ -129,9 +129,10 @@ docker-compose logs -f pingpanda
 ## Dependencies & External Integrations
 
 ### Required Packages
-- `pythonping`: ICMP ping (requires `CAP_NET_RAW` capability in Docker)
-- `requests`: HTTP checks with 10-second timeout
-- `slack-sdk`: Slack notifications via `WebClient` (not webhooks despite variable name)
+- `aiohttp`: Async HTTP client for website checks and webhook notifications
+- `aiodns`: Async DNS resolver for DNS checks
+- `aioping`: Async ICMP ping (requires `CAP_NET_RAW` capability in Docker)
+- `tenacity`: Retry logic with exponential backoff
 - `prometheus-client`: Metrics export via HTTP server on `PROMETHEUS_PORT`
 
 ### Docker Security
@@ -141,7 +142,7 @@ docker-compose logs -f pingpanda
 - `restart: unless-stopped` for resilience
 
 ### Notification Webhooks
-- Slack: Uses `WebClient.chat_postMessage()` with attachments (not raw webhook POST)
+- Slack: POST to webhook URL with attachments format
 - Teams: POST with `@type: MessageCard` schema
 - Discord: POST with `embeds` array
 - All wrapped in try-except to prevent notification failures from crashing checks

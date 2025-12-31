@@ -1,7 +1,6 @@
 aiohttp>=3.9.0
 aiodns>=3.1.0
 aioping>=0.4.0
-slack-sdk>=3.34.0
 prometheus-client>=0.17.0
 pytest-asyncio>=0.21.0
 tenacity>=8.2.0
