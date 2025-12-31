@@ -516,33 +516,3 @@ class SSLCheck:
         self.app.logger.debug("SSL certificate for %s:%s expires on %s", host, port, expire_time)
 
         return delta.days
-
-    async def _handle_result(self, domain: str, days_remaining: int, message: str, level: str) -> None:
-        app = self.app
-
-        if level == "ok":
-            if app._should_log_result(True):
-                app.logger.info("SSL check for %s: PASS (%s)", domain, message)
-            status = "ok"
-        elif level == "warning":
-            if app._should_log_result(False):
-                app.logger.warning("SSL check for %s: WARNING (%s)", domain, message)
-            status = "error"
-        else:
-            if app._should_log_result(False):
-                app.logger.error("SSL check for %s: FAIL (%s)", domain, message)
-            status = "error"
-
-        if app.enable_prometheus:
-            metric_value = 1 if level == "ok" else 0
-            app.ssl_status.labels(domain=domain).set(metric_value)
-            app.ssl_days_remaining.labels(domain=domain).set(days_remaining)
-            if level != "ok":
-                app.ssl_errors.labels(domain=domain).inc()
-
-        await app.send_notification(
-            message,
-            status=status,
-            check_type="SSL",
-            target=domain,
-        )
