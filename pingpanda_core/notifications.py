@@ -10,6 +10,13 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 
 import aiohttp
+from tenacity import (
+    AsyncRetrying,
+    before_sleep_log,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from .persistence import PersistenceManager
 
@@ -231,8 +238,6 @@ class NotificationManager:
         service: str,
         headers: Optional[Dict[str, str]],
     ) -> bool:
-        from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential, retry_if_exception_type, before_sleep_log
-
         try:
             async for attempt in AsyncRetrying(
                 stop=stop_after_attempt(self.settings.retry_attempts),

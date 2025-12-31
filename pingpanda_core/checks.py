@@ -14,6 +14,13 @@ from typing import Any, Dict, Optional
 import aiohttp
 import aiodns
 import aioping
+from tenacity import (
+    AsyncRetrying,
+    before_sleep_log,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_fixed,
+)
 
 from .stats import StatsManager, StatsUpdateResult
 
@@ -22,7 +29,6 @@ from .stats import StatsManager, StatsUpdateResult
 class CheckDependencies:
     app: Any
     stats: Optional[StatsManager]
-
 
 class DNSCheck:
     def __init__(self, deps: CheckDependencies):
@@ -53,8 +59,6 @@ class DNSCheck:
             if app.verbose:
                 app.logger.debug("Skipping DNS check for %s (in backoff/circuit open)", domain)
             return
-
-        from tenacity import AsyncRetrying, stop_after_attempt, wait_fixed, retry_if_exception_type, before_sleep_log
 
         start_time = time.perf_counter()
         success = False
@@ -155,8 +159,6 @@ class PingCheck:
             if app.verbose:
                 app.logger.debug("Skipping ping check for %s (in backoff/circuit open)", ip)
             return
-
-        from tenacity import AsyncRetrying, stop_after_attempt, wait_fixed, retry_if_exception_type, before_sleep_log
 
         success = False
 
@@ -277,8 +279,6 @@ class WebsiteCheck:
         if not session:
             session = aiohttp.ClientSession()
             local_session = True
-
-        from tenacity import AsyncRetrying, stop_after_attempt, wait_fixed, retry_if_exception_type, before_sleep_log
 
         try:
             async for attempt in AsyncRetrying(
@@ -404,8 +404,6 @@ class SSLCheck:
             if app.verbose:
                 app.logger.debug("Skipping SSL check for %s (in backoff/circuit open)", domain)
             return
-        
-        from tenacity import AsyncRetrying, stop_after_attempt, wait_fixed, retry_if_exception_type, before_sleep_log
 
         success = False
         try:
