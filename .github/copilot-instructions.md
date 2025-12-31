@@ -175,4 +175,4 @@ docker-compose logs -f pingpanda
 - **Notifications**: Test by temporarily setting `ALERT_THRESHOLD=1`
 - **Prometheus**: Verify metrics at `http://localhost:9090/metrics` when enabled
 - **Coverage**: Add tests in `tests/` directory for any new features
-- **Backoff behavior**: Backoff multiplier stays at 1.0 until circuit breaker opens, allowing threshold failures to be reached without exponential backoff blocking legitimate retry attempts
+- **Backoff behavior**: Exponential backoff (2x multiplier per failure, capped at 32x) is applied after each failure. Circuit breaker opens after threshold failures and blocks checks during cooldown.

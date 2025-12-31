@@ -60,7 +60,12 @@ class TargetState:
         self.backoff_multiplier = 1.0
 
     def record_failure(self, current_time: float, circuit_threshold: int) -> None:
-        """Record a failed check and potentially open the circuit."""
+        """Record a failed check and potentially open the circuit.
+        
+        Exponential backoff is applied after the first failure. The backoff
+        multiplier doubles with each failure up to when the circuit opens.
+        This allows for graceful degradation before the circuit breaker trips.
+        """
         self.consecutive_failures += 1
         self.last_check_time = current_time
 
@@ -69,8 +74,11 @@ class TargetState:
             if not self.is_circuit_open:
                 self.is_circuit_open = True
                 self.circuit_opened_at = current_time
-        # Don't increase backoff multiplier - keep it at 1.0 until circuit opens
-        # This allows the circuit breaker threshold to be reached without exponential backoff blocking checks
+        else:
+            # Apply exponential backoff for failures before circuit opens
+            # This provides gradual backpressure while still allowing
+            # the circuit breaker threshold to be reached
+            self.backoff_multiplier = min(self.backoff_multiplier * 2.0, 32.0)
 
 
 class FailureTracker:
