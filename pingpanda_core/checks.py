@@ -194,7 +194,7 @@ class PingCheck:
             if app.verbose:
                 app.logger.debug("Ping to %s failed after %s attempts: %s", ip, app.retry_count, exc)
             success = False
-            await self._update_stats(ip, False)
+
         # Record the result in the failure tracker
         app.failure_tracker.record_result(f"ping:{ip}", success)
 
