@@ -468,7 +468,12 @@ class SSLCheck:
                         )
 
                     if app.enable_prometheus:
+                        # Set status: 1 for ok, 0 for warning/error
+                        metric_value = 1 if level == "ok" else 0
+                        app.ssl_status.labels(domain=domain).set(metric_value)
                         app.ssl_days_remaining.labels(domain=domain).set(days_remaining)
+                        if level != "ok":
+                            app.ssl_errors.labels(domain=domain).inc()
         except Exception as exc:
             if app.verbose:
                 app.logger.debug("SSL check for %s failed after %s attempts: %s", domain, app.retry_count, exc)
@@ -480,6 +485,9 @@ class SSLCheck:
                 check_type="SSL",
                 target=domain,
             )
+            if app.enable_prometheus:
+                app.ssl_status.labels(domain=domain).set(0)
+                app.ssl_errors.labels(domain=domain).inc()
 
         # Record the result in the failure tracker
         app.failure_tracker.record_result(f"ssl:{domain}", success)
