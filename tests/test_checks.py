@@ -35,6 +35,16 @@ class DummyApp:
         self.failure_tracker = FailureTracker(enable_backoff=False)
         self.http_session = None
         self.dns_resolver = None
+        # Prometheus metrics
+        self.dns_status = None
+        self.dns_response_time = None
+        self.ping_status = None
+        self.ping_response_time = None
+        self.website_status = None
+        self.website_response_time = None
+        self.ssl_status = None
+        self.ssl_days_remaining = None
+        self.ssl_errors = None
 
     def _should_log_result(self, is_success):
         return True
@@ -135,3 +145,58 @@ async def test_ssl_check_warning(monkeypatch):
     assert len(app.notifications) == 1
     assert app.notifications[0]["status"] == "error"  # warning mapped to error notifications
     assert app.notifications[0]["type"] == "SSL"
+
+
+@pytest.mark.asyncio
+async def test_prometheus_metrics_updated_on_success(monkeypatch):
+    """Test that prometheus metrics are set when checks succeed."""
+    app = DummyApp()
+    app.enable_prometheus = True
+    app.enable_dns = True
+    app.domains = ["example.com"]
+    
+    # Mock prometheus gauges and summaries
+    mock_status = MagicMock()
+    mock_response_time = MagicMock()
+    app.dns_status = mock_status
+    app.dns_response_time = mock_response_time
+    
+    # Mock aiodns resolver
+    mock_resolver = MagicMock()
+    mock_resolver.query = AsyncMock(return_value="93.184.216.34")
+    app.dns_resolver = mock_resolver
+    
+    await DNSCheck(CheckDependencies(app=app, stats=None)).run()
+    
+    # Verify metrics were updated (using keyword args)
+    mock_status.labels.assert_called_once_with(domain="example.com")
+    mock_status.labels.return_value.set.assert_called_once_with(1)  # 1 = OK
+    mock_response_time.labels.assert_called_once_with(domain="example.com")
+    mock_response_time.labels.return_value.observe.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_prometheus_metrics_updated_on_failure(monkeypatch):
+    """Test that prometheus metrics are set when checks fail."""
+    app = DummyApp()
+    app.enable_prometheus = True
+    app.enable_ping = True
+    app.ping_ips = ["1.1.1.1"]
+    
+    # Mock prometheus metrics
+    mock_status = MagicMock()
+    mock_errors = MagicMock()
+    app.ping_status = mock_status
+    app.ping_errors = mock_errors
+    
+    # Mock aioping.ping to raise exception
+    monkeypatch.setattr(checks_module.aioping, "ping", AsyncMock(side_effect=Exception("Ping failed")))
+    monkeypatch.setattr(asyncio, "sleep", AsyncMock())
+    
+    await PingCheck(CheckDependencies(app=app, stats=None)).run()
+    
+    # Verify error metrics were updated (using keyword args)
+    mock_status.labels.assert_called_with(target="1.1.1.1")
+    mock_status.labels.return_value.set.assert_called_with(0)  # 0 = ERROR
+    mock_errors.labels.assert_called_with(target="1.1.1.1")
+    mock_errors.labels.return_value.inc.assert_called_once()
