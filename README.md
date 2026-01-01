@@ -61,10 +61,15 @@ PingPanda is configured via environment variables or a configuration file.
 |----------|-------------|---------|
 | `INTERVAL` | Check interval in seconds | `15` |
 | `RETRY_COUNT` | Number of retry attempts | `3` |
+| `JITTER_SECONDS` | Random jitter to add/subtract from interval | `5.0` |
 | `VERBOSE` | Enable verbose logging | `false` |
 | `LOG_LEVEL` | Logging level (DEBUG, INFO, WARNING, ERROR) | `INFO` |
 | `LOG_DIR` | Directory for log files | `/logs` |
 | `LOG_FILE` | Log file name | `pingpanda.log` |
+| `LOG_TO_FILE` | Enable file logging | `true` |
+| `LOG_TO_TERMINAL` | Enable terminal logging | `true` |
+| `MAX_LOG_SIZE` | Maximum log file size in bytes | `1048576` |
+| `LOG_BACKUP_COUNT` | Number of rotated log files to keep | `5` |
 
 ### Check Targets
 
@@ -78,14 +83,20 @@ PingPanda is configured via environment variables or a configuration file.
 | `PING_IPS` | Comma-separated IPs for ping checks | `1.1.1.1` |
 | `CHECK_WEBSITE` | Comma-separated URLs for website checks | _(empty)_ |
 | `SSL_CHECK_DOMAINS` | Comma-separated domains for SSL checks | `google.com` |
+| `SUCCESS_HTTP_CODES` | Comma-separated HTTP codes considered successful | `200` |
 
 ### Notification Settings
 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `SLACK_WEBHOOK_URL` | Slack webhook URL | _(empty)_ |
+| `SLACK_CHANNEL` | Slack channel to post to | _(empty)_ |
+| `SLACK_USERNAME` | Slack bot username | `PingPanda` |
+| `SLACK_ICON_EMOJI` | Slack bot emoji icon | _(empty)_ |
 | `TEAMS_WEBHOOK_URL` | Microsoft Teams webhook URL | _(empty)_ |
 | `DISCORD_WEBHOOK_URL` | Discord webhook URL | _(empty)_ |
+| `DISCORD_USERNAME` | Discord bot username | `PingPanda` |
+| `DISCORD_AVATAR_URL` | Discord bot avatar URL | _(empty)_ |
 | `ALERT_THRESHOLD` | Consecutive failures before alerting | `3` |
 | `NOTIFY_RECOVERY` | Send recovery notifications | `true` |
 | `NOTIFICATION_RETRY_ATTEMPTS` | Retry attempts for failed notifications | `3` |
@@ -103,6 +114,8 @@ PingPanda is configured via environment variables or a configuration file.
 | `STATS_LOG_FILE` | Statistics log file path | `pingpanda_stats.csv` |
 | `STATS_LOG_FORMAT` | Log format: `csv` or `json` | `csv` |
 | `PERSIST_STATS` | Save statistics across restarts | `false` |
+| `STATS_PERSISTENCE_FILE` | File path for persisted statistics | `pingpanda_stats.json` |
+| `STATUS_DIR` | Directory for status tracking files | _(derived from LOG_DIR)_ |
 | `FLAP_THRESHOLD` | Status changes to trigger flapping alert | `5` |
 | `FLAP_WINDOW_SECONDS` | Time window for flapping detection | `300` |
 
