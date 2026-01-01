@@ -187,7 +187,7 @@ class PingPanda:
         log_dir = self.log_dir
         self.stats_log_file = str(self.config.get("stats_log_file", os.path.join(log_dir, "pingpanda_stats.csv")))
         self.stats_persistence_file = str(
-            self.config.get("stats_persistence_file", os.path.join(log_dir, "pingpanda_stats.pkl"))
+            self.config.get("stats_persistence_file", os.path.join(log_dir, "pingpanda_stats.json"))
         )
 
         self.slack_webhook_url = self.config.get("slack_webhook_url")

@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
-import pickle
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Dict, Optional
+
+
+def _json_serializer(obj: Any) -> Any:
+    """Custom JSON serializer for objects not serializable by default."""
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
 @dataclass
@@ -65,8 +73,11 @@ class PersistenceManager:
             return None
 
         try:
-            with open(path, "rb") as handle:
-                return pickle.load(handle)
+            with open(path, "r", encoding="utf-8") as handle:
+                return json.load(handle)
+        except json.JSONDecodeError as exc:
+            self.logger.error("Failed to parse stats JSON from %s: %s", path, exc)
+            return None
         except Exception as exc:  # pylint: disable=broad-except
             self.logger.error("Failed to load stats from %s: %s", path, exc)
             return None
@@ -84,7 +95,7 @@ class PersistenceManager:
             os.makedirs(directory, exist_ok=True)
 
         try:
-            with open(path, "wb") as handle:
-                pickle.dump(payload, handle)
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, default=_json_serializer, indent=2)
         except Exception as exc:  # pylint: disable=broad-except
             self.logger.error("Failed to save stats to %s: %s", path, exc)

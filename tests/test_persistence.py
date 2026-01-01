@@ -10,14 +10,14 @@ class DummyLogger(logging.Logger):
 
 
 def test_stats_round_trip(tmp_path):
-    stats_path = tmp_path / "stats.pkl"
+    stats_path = tmp_path / "stats.json"
     manager = PersistenceManager(
         DummyLogger(),
         base_dir=str(tmp_path),
         stats_settings=StatsPersistenceSettings(True, str(stats_path)),
     )
 
-    payload = {"ip_stats": {"1.1.1.1": {"ip": "1.1.1.1"}}, "saved_at": "now"}
+    payload = {"ip_stats": {"1.1.1.1": {"ip": "1.1.1.1"}}, "saved_at": "2025-01-01T00:00:00"}
     manager.save_stats(payload)
 
     assert stats_path.exists()
@@ -29,7 +29,7 @@ def test_status_file_helpers(tmp_path):
     manager = PersistenceManager(
         DummyLogger(),
         base_dir=str(tmp_path),
-        stats_settings=StatsPersistenceSettings(False, str(tmp_path / "unused.pkl")),
+        stats_settings=StatsPersistenceSettings(False, str(tmp_path / "unused.json")),
     )
 
     manager.write_status_count("DNS_example.com", 3)

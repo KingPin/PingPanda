@@ -11,7 +11,7 @@ async def test_notification_threshold_and_recovery(monkeypatch, tmp_path):
     persistence = PersistenceManager(
         logging.getLogger("pingpanda.tests.notifications"),
         base_dir=str(tmp_path),
-        stats_settings=StatsPersistenceSettings(False, str(tmp_path / "unused.pkl")),
+        stats_settings=StatsPersistenceSettings(False, str(tmp_path / "unused.json")),
     )
     settings = NotificationSettings(
         alert_threshold=2,
