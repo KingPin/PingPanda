@@ -8,7 +8,7 @@ import socket
 import ssl
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 import aiohttp
@@ -517,7 +517,7 @@ class SSLCheck:
         if expire_time is None:
             return None
 
-        delta = expire_time - datetime.utcnow()
+        delta = expire_time - datetime.now(timezone.utc)
 
         self.app.logger.debug("SSL certificate for %s:%s expires on %s", host, port, expire_time)
 
