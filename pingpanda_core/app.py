@@ -97,8 +97,6 @@ class PingPanda:
         max_log_size = int(self.config.get("max_log_size", 1048576))
         log_backup_count = int(self.config.get("log_backup_count", 5))
 
-        os.makedirs(os.path.dirname(log_file), exist_ok=True)
-
         self.logger.setLevel(log_level)
 
         formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
@@ -109,6 +107,7 @@ class PingPanda:
             self.logger.addHandler(console_handler)
 
         if str(self.config.get("log_to_file", "true")).lower() == "true":
+            os.makedirs(os.path.dirname(log_file), exist_ok=True)
             file_handler = RotatingFileHandler(log_file, maxBytes=max_log_size, backupCount=log_backup_count)
             file_handler.setFormatter(formatter)
             self.logger.addHandler(file_handler)
@@ -209,6 +208,54 @@ class PingPanda:
         self.backoff_max_seconds = max(self.backoff_min_seconds, get_float("backoff_max_seconds", 300.0))
         self.circuit_breaker_threshold = max(1, get_int("circuit_breaker_threshold", 5))
         self.circuit_breaker_cooldown = max(10.0, get_float("circuit_breaker_cooldown_seconds", 60.0))
+
+        # Validate configuration
+        self._validate_config()
+
+    def _validate_config(self) -> None:
+        """Validate configuration for conflicts and invalid combinations."""
+        # Check for mutually exclusive filter options
+        if self.show_only_success and self.show_only_failure:
+            self.logger.warning(
+                "Both SHOW_ONLY_SUCCESS and SHOW_ONLY_FAILURE are enabled. "
+                "This will suppress all output. Disabling both filters."
+            )
+            self.show_only_success = False
+            self.show_only_failure = False
+
+        # Validate SSL check configuration
+        if self.enable_ssl_check and not self.ssl_check_domains:
+            self.logger.warning(
+                "ENABLE_SSL_CHECK is true but no SSL_CHECK_DOMAINS specified. "
+                "SSL checks will be disabled."
+            )
+            self.enable_ssl_check = False
+
+        # Validate website check configuration
+        if self.enable_website_check and not self.websites:
+            self.logger.warning(
+                "ENABLE_WEBSITE_CHECK is true but no CHECK_WEBSITE URLs specified. "
+                "Website checks will be disabled."
+            )
+            self.enable_website_check = False
+
+        # Validate stats log format
+        if self.stats_log_format not in ("csv", "json"):
+            self.logger.warning(
+                "Invalid STATS_LOG_FORMAT '%s'. Must be 'csv' or 'json'. Defaulting to 'csv'.",
+                self.stats_log_format
+            )
+            self.stats_log_format = "csv"
+
+        # Validate backoff configuration
+        if self.backoff_max_seconds < self.backoff_min_seconds:
+            self.logger.warning(
+                "BACKOFF_MAX_SECONDS (%s) is less than BACKOFF_MIN_SECONDS (%s). "
+                "Setting max to equal min.",
+                self.backoff_max_seconds,
+                self.backoff_min_seconds
+            )
+            self.backoff_max_seconds = self.backoff_min_seconds
 
     def _setup_prometheus(self) -> None:
         if not self.enable_prometheus:
