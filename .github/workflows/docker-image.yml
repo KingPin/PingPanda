@@ -67,7 +67,7 @@ jobs:
 
       # Set environment variable for build info
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
         with:
           platforms: amd64,arm64,arm
 
