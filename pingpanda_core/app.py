@@ -70,10 +70,14 @@ class NormalizedConfig(dict):
         return dict(self._original)
 
 
+_PROMETHEUS_NOT_LOADED: object = object()
+
+
 class PingPanda:
     """PingPanda orchestration layer coordinating checks, notifications, and stats."""
 
-    _prometheus_exports: Optional[Dict[str, Any]] = None
+    # Sentinel distinguishes "not tried yet" from "tried and unavailable" (None).
+    _prometheus_exports: Any = _PROMETHEUS_NOT_LOADED
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         self.config = NormalizedConfig(config or {})
@@ -326,13 +330,13 @@ class PingPanda:
 
     @classmethod
     def _ensure_prometheus(cls) -> Optional[Dict[str, Any]]:
-        if cls._prometheus_exports is not None:
+        if cls._prometheus_exports is not _PROMETHEUS_NOT_LOADED:
             return cls._prometheus_exports
 
         try:
             module = import_module("prometheus_client")
         except ImportError:
-            cls._prometheus_exports = None
+            cls._prometheus_exports = None  # type: ignore[assignment]
             return None
 
         cls._prometheus_exports = {
