@@ -16,7 +16,7 @@ def test_main_invokes_monitor_with_config(monkeypatch, tmp_path):
         async def run(self):
             captured["ran"] = True
 
-    monkeypatch.setenv("EXISTING", "value")
+    monkeypatch.setenv("DOMAINS", "example.com")
     monkeypatch.setattr(pingpanda, "PingPandaApp", DummyMonitor)
     monkeypatch.setattr(
         sys,
@@ -36,4 +36,4 @@ def test_main_invokes_monitor_with_config(monkeypatch, tmp_path):
     assert config["BAZ"] == "buzz"
     assert config["SHOW_ONLY_SUCCESS"] == "true"
     assert captured.get("ran") is True
-    assert config["EXISTING"] == "value"
+    assert config["DOMAINS"] == "example.com"

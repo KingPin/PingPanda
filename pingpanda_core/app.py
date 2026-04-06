@@ -15,7 +15,8 @@ from typing import Any, Callable, Dict, List, Optional, Set, Union
 import aiohttp
 import aiodns
 
-from .checks import CheckDependencies, DNSCheck, PingCheck, SSLCheck, WebsiteCheck
+from .checks import DNSCheck, PingCheck, SSLCheck, WebsiteCheck  # noqa: F401 — ensure checks register
+from .registry import CheckDependencies, _CHECK_REGISTRY
 from .notifications import NotificationManager, NotificationSettings
 from .persistence import PersistenceManager, StatsPersistenceSettings
 from .stats import StatsManager, StatsSettings
@@ -407,23 +408,17 @@ class PingPanda:
         )
 
         self._check_deps = CheckDependencies(app=self, stats=self.stats_manager)
-        self._dns_check = DNSCheck(self._check_deps)
-        self._ping_check = PingCheck(self._check_deps)
-        self._website_check = WebsiteCheck(self._check_deps)
-        self._ssl_check = SSLCheck(self._check_deps)
-
         self._build_check_jobs()
 
     def _build_check_jobs(self) -> None:
-        self._check_jobs: List[Callable[[], Any]] = []
-        if self.enable_dns:
-            self._check_jobs.append(self._dns_check.run)
-        if self.enable_ping:
-            self._check_jobs.append(self._ping_check.run)
-        if self.enable_website_check and self.websites:
-            self._check_jobs.append(self._website_check.run)
-        if self.enable_ssl_check:
-            self._check_jobs.append(self._ssl_check.run)
+        # Instantiate every registered check type. Each check's run() method
+        # handles its own enabled/target guards, so no per-type conditionals here.
+        self._check_instances = {
+            name: cls(self._check_deps) for name, cls in _CHECK_REGISTRY.items()
+        }
+        self._check_jobs: List[Callable[[], Any]] = [
+            instance.run for instance in self._check_instances.values()
+        ]
 
     async def send_notification(self, message: str, status: str, check_type: str, target: str) -> None:
         await self.notifier.notify(

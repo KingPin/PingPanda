@@ -7,9 +7,8 @@ import logging
 import socket
 import ssl
 import time
-from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import aiohttp
 import aiodns
@@ -22,6 +21,7 @@ from tenacity import (
     wait_exponential,
 )
 
+from .registry import BaseCheck, CheckDependencies, register_check
 from .stats import StatsManager, StatsUpdateResult
 
 
@@ -30,37 +30,28 @@ def _sanitize(value: str) -> str:
     return value.replace("\n", "\\n").replace("\r", "\\r")
 
 
-@dataclass
-class CheckDependencies:
-    app: Any
-    stats: Optional[StatsManager]
+# ---------------------------------------------------------------------------
+# DNS
+# ---------------------------------------------------------------------------
 
-class DNSCheck:
-    def __init__(self, deps: CheckDependencies):
-        self.deps = deps
+@register_check("dns")
+class DNSCheck(BaseCheck):
+    @property
+    def check_name(self) -> str:
+        return "DNS resolution"
 
     @property
-    def app(self):
-        return self.deps.app
+    def is_enabled(self) -> bool:
+        return bool(self.ctx.enable_dns)
 
-    async def run(self) -> None:
-        app = self.app
-        if not app.enable_dns:
-            return
+    @property
+    def targets(self) -> List[str]:
+        return self.ctx.domains
 
-        if not (app.show_only_success or app.show_only_failure):
-            app.logger.info("Starting DNS resolution checks...")
-
-        tasks = []
-        for domain in app.domains:
-            tasks.append(self._check_domain(domain))
-        
-        await asyncio.gather(*tasks)
-
-    async def _check_domain(self, domain: str) -> None:
-        app = self.app
+    async def _check_single(self, domain: str) -> None:
+        app = self.ctx
         safe_domain = _sanitize(domain)
-        # Check if we should skip this target due to backoff/circuit breaker
+
         if not app.failure_tracker.should_check(f"dns:{domain}"):
             if app.verbose:
                 app.logger.debug("Skipping DNS check for %s (in backoff/circuit open)", safe_domain)
@@ -101,12 +92,14 @@ class DNSCheck:
                         target=domain,
                     )
                     success = True
-        except (aiodns.error.DNSError, Exception) as exc:
+        except aiodns.error.DNSError as exc:
             if app.verbose:
-                app.logger.debug("DNS Resolution for %s failed after %s attempts: %s", safe_domain, app.retry_count, exc)
+                app.logger.debug(
+                    "DNS Resolution for %s failed after %s attempts: %s",
+                    safe_domain, app.retry_count, exc,
+                )
             success = False
 
-        # Record the result in the failure tracker
         app.failure_tracker.record_result(f"dns:{domain}", success)
 
         if not success:
@@ -125,36 +118,28 @@ class DNSCheck:
             )
 
 
-class PingCheck:
-    def __init__(self, deps: CheckDependencies):
-        self.deps = deps
+# ---------------------------------------------------------------------------
+# Ping
+# ---------------------------------------------------------------------------
+
+@register_check("ping")
+class PingCheck(BaseCheck):
+    @property
+    def check_name(self) -> str:
+        return "ping"
 
     @property
-    def app(self):
-        return self.deps.app
+    def is_enabled(self) -> bool:
+        return bool(self.ctx.enable_ping)
 
     @property
-    def stats(self) -> Optional[StatsManager]:
-        return self.deps.stats
+    def targets(self) -> List[str]:
+        return self.ctx.ping_ips
 
-    async def run(self) -> None:
-        app = self.app
-        if not app.enable_ping:
-            return
-
-        if not (app.show_only_success or app.show_only_failure):
-            app.logger.info("Starting ping checks...")
-
-        tasks = []
-        for ip in app.ping_ips:
-            tasks.append(self._check_ip(ip))
-        
-        await asyncio.gather(*tasks)
-
-    async def _check_ip(self, ip: str) -> None:
-        app = self.app
+    async def _check_single(self, ip: str) -> None:
+        app = self.ctx
         safe_ip = _sanitize(ip)
-        # Check if we should skip this target due to backoff/circuit breaker
+
         if not app.failure_tracker.should_check(f"ping:{ip}"):
             if app.verbose:
                 app.logger.debug("Skipping ping check for %s (in backoff/circuit open)", safe_ip)
@@ -171,9 +156,7 @@ class PingCheck:
                 reraise=True,
             ):
                 with attempt:
-                    # aioping returns delay in seconds
                     delay = await aioping.ping(ip, timeout=2)
-                    
                     duration_ms = delay * 1000
 
                     if app._should_log_result(True):
@@ -194,10 +177,12 @@ class PingCheck:
                     success = True
         except Exception as exc:
             if app.verbose:
-                app.logger.debug("Ping to %s failed after %s attempts: %s", safe_ip, app.retry_count, exc)
+                app.logger.debug(
+                    "Ping to %s failed after %s attempts: %s",
+                    safe_ip, app.retry_count, exc,
+                )
             success = False
 
-        # Record the result in the failure tracker
         app.failure_tracker.record_result(f"ping:{ip}", success)
 
         if not success:
@@ -224,73 +209,65 @@ class PingCheck:
         result: StatsUpdateResult = self.stats.update_ip(ip, success)
 
         if result.flapping_changed and result.is_flapping:
-            await self.app.send_notification(
-                f"IP {ip} is flapping (>{self.app.flap_threshold} status changes in {self.app.flap_window_seconds}s)",
+            await self.ctx.send_notification(
+                f"IP {ip} is flapping (>{self.ctx.flap_threshold} status changes "
+                f"in {self.ctx.flap_window_seconds}s)",
                 status="error",
                 check_type="Flapping",
                 target=ip,
             )
         elif result.status_changed and success and not result.is_flapping:
-            self.app.logger.info(
+            self.ctx.logger.info(
                 "IP %s recovered (was down for %.1fs)",
                 ip,
                 self.stats.ip_stats[ip].total_downtime,
             )
 
 
-class WebsiteCheck:
-    def __init__(self, deps: CheckDependencies):
-        self.deps = deps
+# ---------------------------------------------------------------------------
+# Website
+# ---------------------------------------------------------------------------
+
+@register_check("website")
+class WebsiteCheck(BaseCheck):
+    @property
+    def check_name(self) -> str:
+        return "website"
 
     @property
-    def app(self):
-        return self.deps.app
+    def is_enabled(self) -> bool:
+        return bool(self.ctx.enable_website_check and self.ctx.websites)
 
-    async def run(self) -> None:
-        app = self.app
-        if not app.enable_website_check or not app.websites:
-            return
+    @property
+    def targets(self) -> List[str]:
+        return self.ctx.websites
 
-        if not (app.show_only_success or app.show_only_failure):
-            app.logger.info("Starting website checks...")
-
-        tasks = []
-        for website in app.websites:
-            if not website:
-                continue
-            tasks.append(self._check_website(website))
-        
-        await asyncio.gather(*tasks)
-
-    async def _check_website(self, website: str) -> None:
-        app = self.app
+    async def _check_single(self, website: str) -> None:
+        app = self.ctx
         safe_website = _sanitize(website)
-        # Check if we should skip this target due to backoff/circuit breaker
+
         if not app.failure_tracker.should_check(f"website:{website}"):
             if app.verbose:
-                app.logger.debug("Skipping website check for %s (in backoff/circuit open)", safe_website)
+                app.logger.debug(
+                    "Skipping website check for %s (in backoff/circuit open)", safe_website
+                )
             return
 
         start_time = time.perf_counter()
         success = False
-        
-        # Use existing session if available
-        session = getattr(app, "http_session", None)
-        local_session = False
-        if not session:
-            session = aiohttp.ClientSession()
-            local_session = True
 
         try:
             async for attempt in AsyncRetrying(
                 stop=stop_after_attempt(app.retry_count),
-                wait=wait_fixed(1),
+                wait=wait_exponential(multiplier=1, min=1, max=10),
                 retry=retry_if_exception_type(aiohttp.ClientError),
                 before_sleep=before_sleep_log(app.logger, logging.DEBUG) if app.verbose else None,
                 reraise=True,
             ):
                 with attempt:
-                    async with session.get(website, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                    async with app.http_session.get(
+                        website, timeout=aiohttp.ClientTimeout(total=10)
+                    ) as response:
                         elapsed = time.perf_counter() - start_time
                         duration_ms = elapsed * 1000
                         status_code = response.status
@@ -300,9 +277,7 @@ class WebsiteCheck:
                             if app._should_log_result(True):
                                 app.logger.info(
                                     "Website check for %s: PASS (HTTP Status: %s, Time: %.2fms)",
-                                    safe_website,
-                                    status_code,
-                                    duration_ms,
+                                    safe_website, status_code, duration_ms,
                                 )
 
                             if app.enable_prometheus:
@@ -319,26 +294,27 @@ class WebsiteCheck:
                             if app._should_log_result(False):
                                 app.logger.warning(
                                     "Website check for %s: FAIL (HTTP Status: %s, Time: %.2fms)",
-                                    safe_website,
-                                    status_code,
-                                    duration_ms,
+                                    safe_website, status_code, duration_ms,
                                 )
-                            
+
                             await app.send_notification(
                                 f"Website check failed: HTTP {status_code}",
                                 status="error",
                                 check_type="Website",
                                 target=website,
                             )
-                            
+
                             if app.enable_prometheus:
                                 app.website_status.labels(url=website).set(0)
                                 app.website_errors.labels(url=website).inc()
+
         except aiohttp.ClientError as exc:
             if app.verbose:
-                app.logger.debug("Website check for %s failed after %s attempts: %s", safe_website, app.retry_count, exc)
+                app.logger.debug(
+                    "Website check for %s failed after %s attempts: %s",
+                    safe_website, app.retry_count, exc,
+                )
             success = False
-            # Original code also sent notification here for ClientError
             await app.send_notification(
                 f"Failed to reach website: {exc}",
                 status="error",
@@ -348,12 +324,14 @@ class WebsiteCheck:
             if app.enable_prometheus:
                 app.website_status.labels(url=website).set(0)
                 app.website_errors.labels(url=website).inc()
+
         except Exception as exc:
-            # Non-retryable exception
             if app.verbose:
-                app.logger.debug("Website check for %s failed with unexpected error: %s", safe_website, exc)
+                app.logger.debug(
+                    "Website check for %s failed with unexpected error: %s",
+                    safe_website, exc,
+                )
             success = False
-            # Original code didn't have a specific catch-all, but this is good for robustness
             await app.send_notification(
                 f"Website check failed with unexpected error: {exc}",
                 status="error",
@@ -363,51 +341,47 @@ class WebsiteCheck:
             if app.enable_prometheus:
                 app.website_status.labels(url=website).set(0)
                 app.website_errors.labels(url=website).inc()
-        finally:
-            if local_session:
-                await session.close()
-        
-        # Wait, the original code didn't loop for website checks!
-        # It just did a single try/except block.
-        # "for attempt in range(app.retry_count)" was NOT present in the view_file output for _check_website.
-        # Let me verify that.
 
-        # Record the result in the failure tracker
         app.failure_tracker.record_result(f"website:{website}", success)
 
 
-class SSLCheck:
-    def __init__(self, deps: CheckDependencies):
-        self.deps = deps
-        # Create the SSL context once and reuse it; ssl.create_default_context()
-        # loads CA certificates from disk each call, which is blocking I/O.
+# ---------------------------------------------------------------------------
+# SSL
+# ---------------------------------------------------------------------------
+
+@register_check("ssl")
+class SSLCheck(BaseCheck):
+    def __init__(self, deps: CheckDependencies) -> None:
+        super().__init__(deps)
+        # Create the SSL context once; ssl.create_default_context() loads CA
+        # certs from disk on each call — avoid that in the hot path.
         self._ssl_context = ssl.create_default_context()
 
     @property
-    def app(self):
-        return self.deps.app
+    def check_name(self) -> str:
+        return "SSL certificate"
 
-    async def run(self) -> None:
-        app = self.app
-        if not app.enable_ssl_check or not app.ssl_check_domains:
-            return
+    @property
+    def is_enabled(self) -> bool:
+        return bool(self.ctx.enable_ssl_check and self.ctx.ssl_check_domains)
 
-        if not (app.show_only_success or app.show_only_failure):
-            app.logger.info("Starting SSL certificate checks...")
-
-        tasks = []
-        for domain in app.ssl_check_domains:
-            tasks.append(self._check_ssl(domain))
-        
-        await asyncio.gather(*tasks)
+    @property
+    def targets(self) -> List[str]:
+        return self.ctx.ssl_check_domains
 
     async def _check_ssl(self, domain: str) -> None:
-        app = self.app
+        """Alias so existing callers still work; delegates to _check_single."""
+        await self._check_single(domain)
+
+    async def _check_single(self, domain: str) -> None:
+        app = self.ctx
         safe_domain = _sanitize(domain)
-        # Check if we should skip this target due to backoff/circuit breaker
+
         if not app.failure_tracker.should_check(f"ssl:{domain}"):
             if app.verbose:
-                app.logger.debug("Skipping SSL check for %s (in backoff/circuit open)", safe_domain)
+                app.logger.debug(
+                    "Skipping SSL check for %s (in backoff/circuit open)", safe_domain
+                )
             return
 
         success = False
@@ -421,21 +395,14 @@ class SSLCheck:
             ):
                 with attempt:
                     host, port = self._parse_domain(domain)
-                    
-                    # Run the blocking SSL check in a thread executor
+
                     loop = asyncio.get_running_loop()
                     days_remaining = await loop.run_in_executor(
                         None, self._get_ssl_days_remaining, host, port
                     )
 
                     if days_remaining is None:
-                        # If None, it means an exception was caught inside _get_ssl_days_remaining
-                        # But wait, _get_ssl_days_remaining catches exceptions and returns None?
-                        # If so, we can't retry based on exception unless we change that.
-                        # Let's check _get_ssl_days_remaining.
-                        # Assuming it raises exception for now, or we treat None as failure.
-                        # If it returns None, we should probably raise an exception to trigger retry.
-                        raise Exception("Failed to get SSL days remaining")
+                        raise OSError("Failed to get SSL days remaining")
 
                     if days_remaining < 0:
                         message = f"SSL certificate for {domain} has expired"
@@ -453,35 +420,34 @@ class SSLCheck:
 
                     if level == "ok":
                         if app._should_log_result(True):
-                            app.logger.info("SSL check for %s: PASS (%s days remaining)", safe_domain, days_remaining)
+                            app.logger.info(
+                                "SSL check for %s: PASS (%s days remaining)",
+                                safe_domain, days_remaining,
+                            )
                         await app.send_notification(
-                            message,
-                            status="ok",
-                            check_type="SSL",
-                            target=domain,
+                            message, status="ok", check_type="SSL", target=domain,
                         )
                     else:
                         if app._should_log_result(False):
                             app.logger.warning("SSL check for %s: %s", safe_domain, message)
                         await app.send_notification(
-                            message,
-                            status="error",
-                            check_type="SSL",
-                            target=domain,
+                            message, status="error", check_type="SSL", target=domain,
                         )
 
                     if app.enable_prometheus:
-                        # Set status: 1 for ok, 0 for warning/error
                         metric_value = 1 if level == "ok" else 0
                         app.ssl_status.labels(domain=domain).set(metric_value)
                         app.ssl_days_remaining.labels(domain=domain).set(days_remaining)
                         if level != "ok":
                             app.ssl_errors.labels(domain=domain).inc()
+
         except Exception as exc:
             if app.verbose:
-                app.logger.debug("SSL check for %s failed after %s attempts: %s", safe_domain, app.retry_count, exc)
+                app.logger.debug(
+                    "SSL check for %s failed after %s attempts: %s",
+                    safe_domain, app.retry_count, exc,
+                )
             success = False
-            # If we failed to get days remaining after retries
             await app.send_notification(
                 f"Failed to check SSL certificate: {exc}",
                 status="error",
@@ -492,7 +458,6 @@ class SSLCheck:
                 app.ssl_status.labels(domain=domain).set(0)
                 app.ssl_errors.labels(domain=domain).inc()
 
-        # Record the result in the failure tracker
         app.failure_tracker.record_result(f"ssl:{domain}", success)
 
     def _parse_domain(self, domain: str) -> tuple[str, int]:
@@ -502,7 +467,6 @@ class SSLCheck:
         return domain, 443
 
     def _get_ssl_days_remaining(self, host: str, port: int) -> Optional[int]:
-        # This is a blocking function, intended to be run in an executor
         context = self._ssl_context
         expire_time: Optional[datetime] = None
         try:
@@ -514,16 +478,18 @@ class SSLCheck:
                     if not not_after:
                         return None
 
-                    expire_time = datetime.strptime(str(not_after), "%b %d %H:%M:%S %Y %Z").replace(tzinfo=timezone.utc)
+                    expire_time = datetime.strptime(
+                        str(not_after), "%b %d %H:%M:%S %Y %Z"
+                    ).replace(tzinfo=timezone.utc)
         except Exception as e:
-            self.app.logger.debug("SSL handshake failed for %s:%s: %s", host, port, e)
+            self.ctx.logger.debug("SSL handshake failed for %s:%s: %s", host, port, e)
             raise
 
         if expire_time is None:
             return None
 
         delta = expire_time - datetime.now(timezone.utc)
-
-        self.app.logger.debug("SSL certificate for %s:%s expires on %s", host, port, expire_time)
-
+        self.ctx.logger.debug(
+            "SSL certificate for %s:%s expires on %s", host, port, expire_time
+        )
         return delta.days
