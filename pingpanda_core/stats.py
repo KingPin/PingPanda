@@ -7,7 +7,7 @@ import io
 import json
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, Optional
@@ -198,8 +198,11 @@ class StatsLogger:
         self.handler.setLevel(logging.INFO)
         self.handler.setFormatter(logging.Formatter("%(message)s"))
 
-        logger_name = f"pingpanda.stats.{id(self)}"
+        # Use the log file path (not id(self)) so re-instantiation with the
+        # same file reuses the existing logger instead of leaking handlers.
+        logger_name = f"pingpanda.stats.{os.path.abspath(log_file)}"
         self._logger = logging.getLogger(logger_name)
+        # Replace any leftover handlers from a previous instance for this path.
         self._logger.handlers = []
         self._logger.setLevel(logging.INFO)
         self._logger.propagate = False
@@ -286,7 +289,6 @@ class StatsUpdateResult:
     flapping_changed: bool
 
 
-@dataclass
 class StatsManager:
     """Tracks per-target statistics for all check types.
 
@@ -297,14 +299,18 @@ class StatsManager:
     threading synchronisation.
     """
 
-    logger: logging.Logger
-    settings: StatsSettings
-    persistence: Optional[PersistenceManager] = None
-    target_stats: Dict[str, TargetStats] = field(default_factory=dict)
-    last_summary_time: Optional[datetime] = None
-    stats_logger: Optional[StatsLogger] = None
-
-    def __post_init__(self) -> None:
+    def __init__(
+        self,
+        logger: logging.Logger,
+        settings: StatsSettings,
+        persistence: Optional[PersistenceManager] = None,
+    ) -> None:
+        self.logger = logger
+        self.settings = settings
+        self.persistence = persistence
+        self.target_stats: Dict[str, TargetStats] = {}
+        self.last_summary_time: Optional[datetime] = datetime.now()
+        self.stats_logger: Optional[StatsLogger] = None
         if self.settings.log_enabled:
             self.stats_logger = StatsLogger(
                 self.settings.log_file,
@@ -312,7 +318,6 @@ class StatsManager:
                 self.settings.log_max_size,
                 self.settings.log_backup_count,
             )
-        self.last_summary_time = datetime.now()
 
     @property
     def ip_stats(self) -> Dict[str, TargetStats]:

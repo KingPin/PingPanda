@@ -35,7 +35,11 @@ def test_status_file_helpers(tmp_path):
 
     manager.write_status_count("DNS_example.com", 3)
     status_file = manager.status_file_path("DNS_example.com")
-    assert Path(status_file).read_text(encoding="utf-8") == "3"
+    assert Path(status_file).exists()
+
+    # Round-trip via load_all_status_counts
+    counts = manager.load_all_status_counts()
+    assert counts["DNS_example.com"] == 3
 
     manager.clear_status("DNS_example.com")
     assert not Path(status_file).exists()
@@ -98,10 +102,11 @@ def test_multiple_status_files(tmp_path):
     manager.write_status_count("Ping_1.1.1.1", 2)
     manager.write_status_count("Website_https://example.com", 3)
     
-    # Verify all exist with correct values
-    assert Path(manager.status_file_path("DNS_example.com")).read_text() == "1"
-    assert Path(manager.status_file_path("Ping_1.1.1.1")).read_text() == "2"
-    assert Path(manager.status_file_path("Website_https://example.com")).read_text() == "3"
+    # Verify all exist with correct values via round-trip
+    counts = manager.load_all_status_counts()
+    assert counts["DNS_example.com"] == 1
+    assert counts["Ping_1.1.1.1"] == 2
+    assert counts["Website_https://example.com"] == 3
     
     # Clear one and verify others remain
     manager.clear_status("DNS_example.com")

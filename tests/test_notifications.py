@@ -35,11 +35,13 @@ async def test_notification_threshold_and_recovery(monkeypatch, tmp_path):
 
     await manager.notify("down", "error", "DNS", "example.com")
     assert not sent_statuses
-    assert status_path.read_text(encoding="utf-8") == "1"
+    counts = persistence.load_all_status_counts()
+    assert counts[status_key] == 1
 
     await manager.notify("still down", "error", "DNS", "example.com")
     assert sent_statuses == ["error"]
-    assert status_path.read_text(encoding="utf-8") == "2"
+    counts = persistence.load_all_status_counts()
+    assert counts[status_key] == 2
 
     await manager.notify("recovered", "ok", "DNS", "example.com")
     assert sent_statuses[-1] == "ok"
