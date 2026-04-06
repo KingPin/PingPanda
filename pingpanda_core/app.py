@@ -597,6 +597,14 @@ class PingPanda:
             self.dns_resolver.cancel()
             self.dns_resolver = None
 
+        # Give each check type a chance to release its own resources
+        # (e.g. SSLCheck shuts down its ThreadPoolExecutor here).
+        if hasattr(self, "_check_instances"):
+            await asyncio.gather(
+                *[c.close() for c in self._check_instances.values()],
+                return_exceptions=True,
+            )
+
         if self.stats_manager:
             self.stats_manager.save()
             self.logger.info("Final statistics:")

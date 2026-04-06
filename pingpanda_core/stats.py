@@ -260,7 +260,7 @@ class StatsLogger:
     def _log_json(self, timestamp: str, ip_stats: Dict[str, TargetStats], overall_stats: Dict[str, Any]) -> None:
         log_entry = {
             "timestamp": timestamp,
-            "ip_stats": {ip: stats.to_dict() for ip, stats in ip_stats.items()},
+            "target_stats": {key: stats.to_dict() for key, stats in ip_stats.items()},
             "overall_stats": overall_stats,
         }
 

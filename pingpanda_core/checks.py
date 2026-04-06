@@ -269,22 +269,15 @@ class WebsiteCheck(BaseCheck):
                                 target=website,
                             )
                         else:
-                            if app._should_log_result(False):
-                                app.logger.warning(
-                                    "Website check for %s: FAIL (HTTP Status: %s, Time: %.2fms)",
-                                    safe_website, status_code, duration_ms,
+                            # Raise so tenacity can retry transient HTTP errors
+                            # (e.g. 500/503); aiohttp.ClientResponseError IS-A
+                            # aiohttp.ClientError and matches the retry predicate.
+                            if app.verbose:
+                                app.logger.debug(
+                                    "Website check for %s: HTTP %s — retrying if attempts remain",
+                                    safe_website, status_code,
                                 )
-
-                            await app.send_notification(
-                                f"Website check failed: HTTP {status_code}",
-                                status="error",
-                                check_type="Website",
-                                target=website,
-                            )
-
-                            if app.enable_prometheus:
-                                app.website_status.labels(url=website).set(0)
-                                app.website_errors.labels(url=website).inc()
+                            response.raise_for_status()
 
         except aiohttp.ClientError as exc:
             if app.verbose:
@@ -293,8 +286,22 @@ class WebsiteCheck(BaseCheck):
                     safe_website, app.retry_count, exc,
                 )
             success = False
+
+            if isinstance(exc, aiohttp.ClientResponseError):
+                fail_msg = f"Website check failed: HTTP {exc.status}"
+                if app._should_log_result(False):
+                    app.logger.warning(
+                        "Website check for %s: FAIL (HTTP Status: %s, Time: %.2fms)",
+                        safe_website, exc.status,
+                        (time.perf_counter() - start_time) * 1000,
+                    )
+            else:
+                fail_msg = f"Failed to reach website: {exc}"
+                if app._should_log_result(False):
+                    app.logger.error("Website check for %s: FAIL — %s", safe_website, exc)
+
             await app.send_notification(
-                f"Failed to reach website: {exc}",
+                fail_msg,
                 status="error",
                 check_type="Website",
                 target=website,
@@ -352,6 +359,9 @@ class SSLCheck(BaseCheck):
     @property
     def targets(self) -> List[str]:
         return self.ctx.ssl_check_domains
+
+    async def close(self) -> None:
+        self._executor.shutdown(wait=False)
 
     async def _check_ssl(self, domain: str) -> None:
         """Alias so existing callers still work; delegates to _check_single."""

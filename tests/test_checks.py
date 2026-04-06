@@ -1,7 +1,8 @@
 import logging
 import pytest
 import asyncio
-from unittest.mock import MagicMock, AsyncMock
+import aiohttp
+from unittest.mock import MagicMock, AsyncMock, patch
 
 import pingpanda_core.checks as checks_module
 from pingpanda_core.backoff import FailureTracker
@@ -110,7 +111,13 @@ async def test_website_check_non_success(monkeypatch):
     # __aenter__ returns the response
     mock_response.__aenter__.return_value = mock_response
     mock_response.__aexit__.return_value = None
-    
+    # raise_for_status is synchronous in aiohttp 3.x and raises ClientResponseError
+    mock_response.raise_for_status = MagicMock(
+        side_effect=aiohttp.ClientResponseError(
+            request_info=MagicMock(), history=(), status=500
+        )
+    )
+
     mock_session.get.return_value = mock_response
     app.http_session = mock_session
 

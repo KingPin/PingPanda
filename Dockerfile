@@ -38,9 +38,6 @@ RUN apk add --no-cache --virtual .build-deps \
 COPY pingpanda.py ./
 COPY pingpanda_core/ ./pingpanda_core/
 
-# Make the script executable
-RUN chmod +x pingpanda.py
-
 # Create non-root user and adjust ownership
 RUN adduser -D pingpanda && \
     chown -R pingpanda:pingpanda /app /logs

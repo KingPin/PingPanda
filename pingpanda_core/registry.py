@@ -170,6 +170,13 @@ class BaseCheck(ABC):
                 self.check_name, target, downtime,
             )
 
+    async def close(self) -> None:
+        """Release resources held by this check (e.g. thread pools).
+
+        Called by PingPanda._cleanup(). Override in subclasses that hold
+        resources beyond what the base class manages.
+        """
+
     @abstractmethod
     async def _check_single(self, target: str) -> None:
         """Perform a check against one target."""
