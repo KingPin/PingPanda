@@ -54,9 +54,26 @@ class PersistenceManager:
     def write_status_count(self, status_key: str, count: int) -> None:
         try:
             with open(self.status_file_path(status_key), "w", encoding="utf-8") as handle:
-                handle.write(str(count))
+                json.dump({"key": status_key, "count": count}, handle)
         except OSError as exc:
             self.logger.warning("Failed to write status file for %s: %s", status_key, exc)
+
+    def load_all_status_counts(self) -> Dict[str, int]:
+        """Return {status_key: failure_count} for every persisted status file."""
+        counts: Dict[str, int] = {}
+        try:
+            for filename in os.listdir(self.status_dir):
+                filepath = os.path.join(self.status_dir, filename)
+                try:
+                    with open(filepath, "r", encoding="utf-8") as handle:
+                        data = json.load(handle)
+                    if isinstance(data, dict) and "key" in data and "count" in data:
+                        counts[data["key"]] = int(data["count"])
+                except (OSError, json.JSONDecodeError, ValueError, KeyError):
+                    pass
+        except OSError:
+            pass
+        return counts
 
     def clear_status(self, status_key: str) -> None:
         path = self.status_file_path(status_key)

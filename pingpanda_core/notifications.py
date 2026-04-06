@@ -50,7 +50,8 @@ class NotificationManager:
         self.settings = settings
         self.persistence = persistence
         self.status_dir = persistence.status_dir
-        self._failure_counts: Dict[str, int] = {}
+        # Seed from disk so alert thresholds survive a container restart.
+        self._failure_counts: Dict[str, int] = persistence.load_all_status_counts()
         self._hostname = socket.gethostname()
 
     async def notify(
