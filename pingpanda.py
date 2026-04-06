@@ -2,6 +2,7 @@
 
 import argparse
 import os
+import sys
 from typing import Dict
 
 from pingpanda_core import PingPanda as PingPandaApp
@@ -43,19 +44,28 @@ _KNOWN_ENV_KEYS = {
 
 
 def load_config(args: argparse.Namespace) -> Dict[str, str]:
-    config = {k: v for k, v in os.environ.items() if k in _KNOWN_ENV_KEYS}
+    # Start from the allowlisted subset of the current environment.
+    config: Dict[str, str] = {k: v for k, v in os.environ.items() if k in _KNOWN_ENV_KEYS}
 
     if args.config:
         config_path = os.path.expanduser(args.config)
-        if os.path.exists(config_path):
-            with open(config_path, "r", encoding="utf-8") as handle:
-                for line in handle:
-                    line = line.strip()
-                    if not line or line.startswith("#"):
-                        continue
-                    if "=" in line:
-                        key, value = line.split("=", 1)
-                        config[key.strip()] = value.strip()
+        if not os.path.exists(config_path):
+            print(
+                f"[PingPanda] WARNING: config file not found: {config_path}",
+                file=sys.stderr,
+            )
+        else:
+            try:
+                from dotenv import dotenv_values
+            except ImportError:
+                # Graceful fallback: parse manually if python-dotenv is absent.
+                _parse_config_file_fallback(config_path, config)
+            else:
+                # dotenv_values() parses KEY=value, supports inline # comments,
+                # quoted values, and multi-line values.
+                for key, value in dotenv_values(config_path).items():
+                    if key in _KNOWN_ENV_KEYS and value is not None:
+                        config[key] = value
 
     if args.verbose:
         config["VERBOSE"] = "true"
@@ -65,6 +75,22 @@ def load_config(args: argparse.Namespace) -> Dict[str, str]:
         config["SHOW_ONLY_FAILURE"] = "true"
 
     return config
+
+
+def _parse_config_file_fallback(path: str, config: Dict[str, str]) -> None:
+    """Minimal KEY=value parser used when python-dotenv is not installed."""
+    with open(path, "r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" in line:
+                key, _, value = line.partition("=")
+                key = key.strip()
+                # Strip inline comments and surrounding quotes.
+                value = value.split("#", 1)[0].strip().strip('"').strip("'")
+                if key in _KNOWN_ENV_KEYS:
+                    config[key] = value
 
 
 def main() -> None:
