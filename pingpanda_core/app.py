@@ -90,10 +90,22 @@ class PingPanda:
         self.http_session: Optional[aiohttp.ClientSession] = None
         self.dns_resolver: Optional[aiodns.DNSResolver] = None
 
+    @staticmethod
+    def _safe_path(base_dir: str, requested: str) -> str:
+        """Resolve *requested* and assert it stays under *base_dir*."""
+        resolved = os.path.realpath(requested)
+        base = os.path.realpath(base_dir)
+        if not resolved.startswith(base + os.sep) and resolved != base:
+            raise ValueError(
+                f"Configured path '{requested}' resolves to '{resolved}' "
+                f"which is outside the expected base directory '{base}'"
+            )
+        return resolved
+
     def _setup_logging(self) -> None:
         log_level = getattr(logging, str(self.config.get("log_level", "INFO")).upper(), logging.INFO)
-        log_dir = str(self.config.get("log_dir", "/logs"))
-        log_file = os.path.join(log_dir, str(self.config.get("log_file", "pingpanda.log")))
+        log_dir = os.path.realpath(str(self.config.get("log_dir", "./logs")))
+        log_file = os.path.join(log_dir, os.path.basename(str(self.config.get("log_file", "pingpanda.log"))))
         max_log_size = int(self.config.get("max_log_size", 1048576))
         log_backup_count = int(self.config.get("log_backup_count", 5))
 
@@ -107,10 +119,14 @@ class PingPanda:
             self.logger.addHandler(console_handler)
 
         if str(self.config.get("log_to_file", "true")).lower() == "true":
-            os.makedirs(os.path.dirname(log_file), exist_ok=True)
-            file_handler = RotatingFileHandler(log_file, maxBytes=max_log_size, backupCount=log_backup_count)
-            file_handler.setFormatter(formatter)
-            self.logger.addHandler(file_handler)
+            try:
+                os.makedirs(log_dir, exist_ok=True)
+                file_handler = RotatingFileHandler(log_file, maxBytes=max_log_size, backupCount=log_backup_count)
+                file_handler.setFormatter(formatter)
+                self.logger.addHandler(file_handler)
+            except OSError as exc:
+                # Fall back to terminal-only logging; don't crash before any output.
+                self.logger.warning("Cannot create log file at %s: %s — logging to terminal only.", log_file, exc)
 
         self.log_dir = log_dir
         self.log_file = log_file
@@ -184,10 +200,19 @@ class PingPanda:
         self.flap_threshold = get_int("flap_threshold", 5)
         self.flap_window_seconds = get_int("flap_window_seconds", 300)
         log_dir = self.log_dir
-        self.stats_log_file = str(self.config.get("stats_log_file", os.path.join(log_dir, "pingpanda_stats.csv")))
-        self.stats_persistence_file = str(
-            self.config.get("stats_persistence_file", os.path.join(log_dir, "pingpanda_stats.json"))
-        )
+        _default_stats_log = os.path.join(log_dir, "pingpanda_stats.csv")
+        _default_stats_persist = os.path.join(log_dir, "pingpanda_stats.json")
+        try:
+            self.stats_log_file = self._safe_path(
+                log_dir, str(self.config.get("stats_log_file", _default_stats_log))
+            )
+            self.stats_persistence_file = self._safe_path(
+                log_dir, str(self.config.get("stats_persistence_file", _default_stats_persist))
+            )
+        except ValueError as exc:
+            self.logger.warning("Unsafe stats file path rejected, using defaults: %s", exc)
+            self.stats_log_file = _default_stats_log
+            self.stats_persistence_file = _default_stats_persist
 
         self.slack_webhook_url = self.config.get("slack_webhook_url")
         self.teams_webhook_url = self.config.get("teams_webhook_url")

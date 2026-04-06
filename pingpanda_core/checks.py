@@ -25,6 +25,11 @@ from tenacity import (
 from .stats import StatsManager, StatsUpdateResult
 
 
+def _sanitize(value: str) -> str:
+    """Strip control characters from user-supplied values before logging."""
+    return value.replace("\n", "\\n").replace("\r", "\\r")
+
+
 @dataclass
 class CheckDependencies:
     app: Any
@@ -54,10 +59,11 @@ class DNSCheck:
 
     async def _check_domain(self, domain: str) -> None:
         app = self.app
+        safe_domain = _sanitize(domain)
         # Check if we should skip this target due to backoff/circuit breaker
         if not app.failure_tracker.should_check(f"dns:{domain}"):
             if app.verbose:
-                app.logger.debug("Skipping DNS check for %s (in backoff/circuit open)", domain)
+                app.logger.debug("Skipping DNS check for %s (in backoff/circuit open)", safe_domain)
             return
 
         start_time = time.perf_counter()
@@ -72,22 +78,15 @@ class DNSCheck:
                 reraise=True,
             ):
                 with attempt:
-                    # Use aiodns for async resolution
-                    # Assuming app has a resolver instance or we create one
-                    resolver = getattr(app, "dns_resolver", None)
-                    if not resolver:
-                        # Fallback if not initialized in app (though it should be)
-                        resolver = aiodns.DNSResolver()
-                    
-                    await resolver.query(domain, 'A')
-                    
+                    await app.dns_resolver.query(domain, 'A')
+
                     elapsed = time.perf_counter() - start_time
                     duration_ms = elapsed * 1000
 
                     if app._should_log_result(True):
                         app.logger.info(
                             "DNS Resolution for %s: PASS (Time: %.2fms)",
-                            domain,
+                            safe_domain,
                             duration_ms,
                         )
 
@@ -104,7 +103,7 @@ class DNSCheck:
                     success = True
         except (aiodns.error.DNSError, Exception) as exc:
             if app.verbose:
-                app.logger.debug("DNS Resolution for %s failed after %s attempts: %s", domain, app.retry_count, exc)
+                app.logger.debug("DNS Resolution for %s failed after %s attempts: %s", safe_domain, app.retry_count, exc)
             success = False
 
         # Record the result in the failure tracker
@@ -112,7 +111,7 @@ class DNSCheck:
 
         if not success:
             if app._should_log_result(False):
-                app.logger.error("DNS Resolution for %s: FAIL", domain)
+                app.logger.error("DNS Resolution for %s: FAIL", safe_domain)
 
             if app.enable_prometheus:
                 app.dns_status.labels(domain=domain).set(0)
@@ -154,10 +153,11 @@ class PingCheck:
 
     async def _check_ip(self, ip: str) -> None:
         app = self.app
+        safe_ip = _sanitize(ip)
         # Check if we should skip this target due to backoff/circuit breaker
         if not app.failure_tracker.should_check(f"ping:{ip}"):
             if app.verbose:
-                app.logger.debug("Skipping ping check for %s (in backoff/circuit open)", ip)
+                app.logger.debug("Skipping ping check for %s (in backoff/circuit open)", safe_ip)
             return
 
         success = False
@@ -177,7 +177,7 @@ class PingCheck:
                     duration_ms = delay * 1000
 
                     if app._should_log_result(True):
-                        app.logger.info("Ping to %s: PASS (Time: %.2fms)", ip, duration_ms)
+                        app.logger.info("Ping to %s: PASS (Time: %.2fms)", safe_ip, duration_ms)
 
                     if app.enable_prometheus:
                         app.ping_status.labels(target=ip).set(1)
@@ -194,7 +194,7 @@ class PingCheck:
                     success = True
         except Exception as exc:
             if app.verbose:
-                app.logger.debug("Ping to %s failed after %s attempts: %s", ip, app.retry_count, exc)
+                app.logger.debug("Ping to %s failed after %s attempts: %s", safe_ip, app.retry_count, exc)
             success = False
 
         # Record the result in the failure tracker
@@ -202,7 +202,7 @@ class PingCheck:
 
         if not success:
             if app._should_log_result(False):
-                app.logger.error("Ping to %s: FAIL", ip)
+                app.logger.error("Ping to %s: FAIL", safe_ip)
 
             if app.enable_prometheus:
                 app.ping_status.labels(target=ip).set(0)
@@ -264,10 +264,11 @@ class WebsiteCheck:
 
     async def _check_website(self, website: str) -> None:
         app = self.app
+        safe_website = _sanitize(website)
         # Check if we should skip this target due to backoff/circuit breaker
         if not app.failure_tracker.should_check(f"website:{website}"):
             if app.verbose:
-                app.logger.debug("Skipping website check for %s (in backoff/circuit open)", website)
+                app.logger.debug("Skipping website check for %s (in backoff/circuit open)", safe_website)
             return
 
         start_time = time.perf_counter()
@@ -299,7 +300,7 @@ class WebsiteCheck:
                             if app._should_log_result(True):
                                 app.logger.info(
                                     "Website check for %s: PASS (HTTP Status: %s, Time: %.2fms)",
-                                    website,
+                                    safe_website,
                                     status_code,
                                     duration_ms,
                                 )
@@ -318,7 +319,7 @@ class WebsiteCheck:
                             if app._should_log_result(False):
                                 app.logger.warning(
                                     "Website check for %s: FAIL (HTTP Status: %s, Time: %.2fms)",
-                                    website,
+                                    safe_website,
                                     status_code,
                                     duration_ms,
                                 )
@@ -335,7 +336,7 @@ class WebsiteCheck:
                                 app.website_errors.labels(url=website).inc()
         except aiohttp.ClientError as exc:
             if app.verbose:
-                app.logger.debug("Website check for %s failed after %s attempts: %s", website, app.retry_count, exc)
+                app.logger.debug("Website check for %s failed after %s attempts: %s", safe_website, app.retry_count, exc)
             success = False
             # Original code also sent notification here for ClientError
             await app.send_notification(
@@ -348,9 +349,9 @@ class WebsiteCheck:
                 app.website_status.labels(url=website).set(0)
                 app.website_errors.labels(url=website).inc()
         except Exception as exc:
-             # Non-retryable exception
+            # Non-retryable exception
             if app.verbose:
-                app.logger.debug("Website check for %s failed with unexpected error: %s", website, exc)
+                app.logger.debug("Website check for %s failed with unexpected error: %s", safe_website, exc)
             success = False
             # Original code didn't have a specific catch-all, but this is good for robustness
             await app.send_notification(
@@ -399,10 +400,11 @@ class SSLCheck:
 
     async def _check_ssl(self, domain: str) -> None:
         app = self.app
+        safe_domain = _sanitize(domain)
         # Check if we should skip this target due to backoff/circuit breaker
         if not app.failure_tracker.should_check(f"ssl:{domain}"):
             if app.verbose:
-                app.logger.debug("Skipping SSL check for %s (in backoff/circuit open)", domain)
+                app.logger.debug("Skipping SSL check for %s (in backoff/circuit open)", safe_domain)
             return
 
         success = False
@@ -448,7 +450,7 @@ class SSLCheck:
 
                     if level == "ok":
                         if app._should_log_result(True):
-                            app.logger.info("SSL check for %s: PASS (%s days remaining)", domain, days_remaining)
+                            app.logger.info("SSL check for %s: PASS (%s days remaining)", safe_domain, days_remaining)
                         await app.send_notification(
                             message,
                             status="ok",
@@ -457,7 +459,7 @@ class SSLCheck:
                         )
                     else:
                         if app._should_log_result(False):
-                            app.logger.warning("SSL check for %s: %s", domain, message)
+                            app.logger.warning("SSL check for %s: %s", safe_domain, message)
                         await app.send_notification(
                             message,
                             status="error",
@@ -474,7 +476,7 @@ class SSLCheck:
                             app.ssl_errors.labels(domain=domain).inc()
         except Exception as exc:
             if app.verbose:
-                app.logger.debug("SSL check for %s failed after %s attempts: %s", domain, app.retry_count, exc)
+                app.logger.debug("SSL check for %s failed after %s attempts: %s", safe_domain, app.retry_count, exc)
             success = False
             # If we failed to get days remaining after retries
             await app.send_notification(
