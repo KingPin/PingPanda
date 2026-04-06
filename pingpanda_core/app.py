@@ -549,18 +549,23 @@ class PingPanda:
                 self._filter_log_tracker.clear()
 
                 if self._check_jobs:
-                    # Run all check jobs concurrently
+                    # Run all check jobs concurrently; return_exceptions=True so
+                    # a crash in one check type does not cancel the others.
                     tasks = [job() for job in self._check_jobs]
-                    await asyncio.gather(*tasks)
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    for result in results:
+                        if isinstance(result, Exception):
+                            self.logger.error("Check job raised an unexpected exception: %r", result)
 
                 self._maybe_output_summary()
 
                 elapsed = time.time() - loop_start
                 remaining = max(0.0, self.interval - elapsed)
                 
-                # Add jitter to prevent thundering herd
-                jitter = random.uniform(0, self.jitter_seconds)
-                sleep_time = remaining + jitter
+                # Add symmetric jitter (±jitter_seconds/2) so the effective
+                # interval is centred on the configured value, not always longer.
+                jitter = random.uniform(-self.jitter_seconds / 2, self.jitter_seconds / 2)
+                sleep_time = max(0.0, remaining + jitter)
                 
                 if self.verbose:
                     self.logger.debug("Sleeping for %.2fs (interval: %ss, jitter: %.2fs)", sleep_time, self.interval, jitter)
@@ -578,7 +583,11 @@ class PingPanda:
         if self.http_session:
             await self.http_session.close()
             self.http_session = None
-        
+
+        if self.dns_resolver:
+            self.dns_resolver.cancel()
+            self.dns_resolver = None
+
         if self.stats_manager:
             self.stats_manager.save()
 
