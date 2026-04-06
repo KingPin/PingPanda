@@ -163,7 +163,25 @@ class FailureTracker:
     def get_all_states(self) -> Dict[str, Any]:
         """Get states of all tracked targets."""
         with self._lock:
-            return {target: self.get_state(target) for target in self._targets if target in self._targets}
+            result = {}
+            for target, state in self._targets.items():
+                result[target] = {
+                    "target": state.target,
+                    "consecutive_failures": state.consecutive_failures,
+                    "is_circuit_open": state.is_circuit_open,
+                    "backoff_multiplier": state.backoff_multiplier,
+                    "last_check": (
+                        datetime.fromtimestamp(state.last_check_time).isoformat()
+                        if state.last_check_time is not None
+                        else None
+                    ),
+                    "last_success": (
+                        datetime.fromtimestamp(state.last_success_time).isoformat()
+                        if state.last_success_time
+                        else None
+                    ),
+                }
+            return result
 
     def reset_target(self, target: str) -> None:
         """Reset a target's state (useful for manual recovery)."""
