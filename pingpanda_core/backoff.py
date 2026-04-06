@@ -5,7 +5,6 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from datetime import datetime
-from threading import Lock
 from typing import Any, Dict, Optional
 
 
@@ -82,7 +81,12 @@ class TargetState:
 
 
 class FailureTracker:
-    """Tracks failure state across all targets with thread-safe operations."""
+    """Tracks failure state across all targets.
+
+    All methods are called from the asyncio event loop and require no
+    threading synchronisation — the single-threaded event loop provides
+    the necessary serialisation.
+    """
 
     def __init__(
         self,
@@ -98,26 +102,24 @@ class FailureTracker:
         self.circuit_threshold = circuit_threshold
         self.circuit_cooldown = circuit_cooldown_seconds
         self._targets: Dict[str, TargetState] = {}
-        self._lock = Lock()
 
     def should_check(self, target: str) -> bool:
         """Check if we should attempt to check this target."""
         if not self.enable_backoff:
             return True
 
-        with self._lock:
-            if target not in self._targets:
-                self._targets[target] = TargetState(target=target)
-                return True
+        if target not in self._targets:
+            self._targets[target] = TargetState(target=target)
+            return True
 
-            state = self._targets[target]
-            return state.should_check(
-                current_time=time.time(),
-                min_backoff=self.min_backoff,
-                max_backoff=self.max_backoff,
-                circuit_threshold=self.circuit_threshold,
-                circuit_cooldown=self.circuit_cooldown,
-            )
+        state = self._targets[target]
+        return state.should_check(
+            current_time=time.time(),
+            min_backoff=self.min_backoff,
+            max_backoff=self.max_backoff,
+            circuit_threshold=self.circuit_threshold,
+            circuit_cooldown=self.circuit_cooldown,
+        )
 
     def record_result(self, target: str, success: bool) -> None:
         """Record the result of a check."""
@@ -126,24 +128,43 @@ class FailureTracker:
 
         current_time = time.time()
 
-        with self._lock:
-            if target not in self._targets:
-                self._targets[target] = TargetState(target=target)
+        if target not in self._targets:
+            self._targets[target] = TargetState(target=target)
 
-            state = self._targets[target]
-            if success:
-                state.record_success(current_time)
-            else:
-                state.record_failure(current_time, self.circuit_threshold)
+        state = self._targets[target]
+        if success:
+            state.record_success(current_time)
+        else:
+            state.record_failure(current_time, self.circuit_threshold)
 
     def get_state(self, target: str) -> Optional[Dict[str, Any]]:
         """Get the current state of a target for debugging/monitoring."""
-        with self._lock:
-            if target not in self._targets:
-                return None
+        if target not in self._targets:
+            return None
 
-            state = self._targets[target]
-            return {
+        state = self._targets[target]
+        return {
+            "target": state.target,
+            "consecutive_failures": state.consecutive_failures,
+            "is_circuit_open": state.is_circuit_open,
+            "backoff_multiplier": state.backoff_multiplier,
+            "last_check": (
+                datetime.fromtimestamp(state.last_check_time).isoformat()
+                if state.last_check_time is not None
+                else None
+            ),
+            "last_success": (
+                datetime.fromtimestamp(state.last_success_time).isoformat()
+                if state.last_success_time
+                else None
+            ),
+        }
+
+    def get_all_states(self) -> Dict[str, Any]:
+        """Get states of all tracked targets."""
+        result = {}
+        for target, state in self._targets.items():
+            result[target] = {
                 "target": state.target,
                 "consecutive_failures": state.consecutive_failures,
                 "is_circuit_open": state.is_circuit_open,
@@ -159,35 +180,11 @@ class FailureTracker:
                     else None
                 ),
             }
-
-    def get_all_states(self) -> Dict[str, Any]:
-        """Get states of all tracked targets."""
-        with self._lock:
-            result = {}
-            for target, state in self._targets.items():
-                result[target] = {
-                    "target": state.target,
-                    "consecutive_failures": state.consecutive_failures,
-                    "is_circuit_open": state.is_circuit_open,
-                    "backoff_multiplier": state.backoff_multiplier,
-                    "last_check": (
-                        datetime.fromtimestamp(state.last_check_time).isoformat()
-                        if state.last_check_time is not None
-                        else None
-                    ),
-                    "last_success": (
-                        datetime.fromtimestamp(state.last_success_time).isoformat()
-                        if state.last_success_time
-                        else None
-                    ),
-                }
-            return result
+        return result
 
     def reset_target(self, target: str) -> None:
         """Reset a target's state (useful for manual recovery)."""
-        with self._lock:
-            if target in self._targets:
-                del self._targets[target]
+        self._targets.pop(target, None)
 
 
 __all__ = ["FailureTracker", "TargetState"]
