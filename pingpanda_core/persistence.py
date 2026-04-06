@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -45,7 +46,10 @@ class PersistenceManager:
 
     # ---- Status helpers -------------------------------------------------
     def status_file_path(self, status_key: str) -> str:
-        return os.path.join(self.status_dir, status_key.replace("/", "_"))
+        # Hash the key so that no user-supplied characters (.. / : etc.) can
+        # produce a path outside status_dir.
+        safe_name = hashlib.sha256(status_key.encode()).hexdigest()
+        return os.path.join(self.status_dir, safe_name)
 
     def write_status_count(self, status_key: str, count: int) -> None:
         try:
@@ -94,8 +98,15 @@ class PersistenceManager:
         if directory:
             os.makedirs(directory, exist_ok=True)
 
+        tmp_path = path + ".tmp"
         try:
-            with open(path, "w", encoding="utf-8") as handle:
+            with open(tmp_path, "w", encoding="utf-8") as handle:
                 json.dump(payload, handle, default=_json_serializer, indent=2)
+            # Atomic replace: avoids a partially-written JSON file on crash.
+            os.replace(tmp_path, path)
         except Exception as exc:  # pylint: disable=broad-except
             self.logger.error("Failed to save stats to %s: %s", path, exc)
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
