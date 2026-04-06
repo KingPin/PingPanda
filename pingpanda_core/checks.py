@@ -19,7 +19,7 @@ from tenacity import (
     before_sleep_log,
     retry_if_exception_type,
     stop_after_attempt,
-    wait_fixed,
+    wait_exponential,
 )
 
 from .stats import StatsManager, StatsUpdateResult
@@ -72,8 +72,8 @@ class DNSCheck:
         try:
             async for attempt in AsyncRetrying(
                 stop=stop_after_attempt(app.retry_count),
-                wait=wait_fixed(1),
-                retry=retry_if_exception_type((aiodns.error.DNSError, Exception)),
+                wait=wait_exponential(multiplier=1, min=1, max=10),
+                retry=retry_if_exception_type(aiodns.error.DNSError),
                 before_sleep=before_sleep_log(app.logger, logging.DEBUG) if app.verbose else None,
                 reraise=True,
             ):
@@ -165,8 +165,8 @@ class PingCheck:
         try:
             async for attempt in AsyncRetrying(
                 stop=stop_after_attempt(app.retry_count),
-                wait=wait_fixed(1),
-                retry=retry_if_exception_type(Exception),
+                wait=wait_exponential(multiplier=1, min=1, max=10),
+                retry=retry_if_exception_type(OSError),
                 before_sleep=before_sleep_log(app.logger, logging.DEBUG) if app.verbose else None,
                 reraise=True,
             ):
@@ -379,6 +379,9 @@ class WebsiteCheck:
 class SSLCheck:
     def __init__(self, deps: CheckDependencies):
         self.deps = deps
+        # Create the SSL context once and reuse it; ssl.create_default_context()
+        # loads CA certificates from disk each call, which is blocking I/O.
+        self._ssl_context = ssl.create_default_context()
 
     @property
     def app(self):
@@ -411,8 +414,8 @@ class SSLCheck:
         try:
             async for attempt in AsyncRetrying(
                 stop=stop_after_attempt(app.retry_count),
-                wait=wait_fixed(1),
-                retry=retry_if_exception_type(Exception),
+                wait=wait_exponential(multiplier=1, min=1, max=10),
+                retry=retry_if_exception_type((OSError, ssl.SSLError)),
                 before_sleep=before_sleep_log(app.logger, logging.DEBUG) if app.verbose else None,
                 reraise=True,
             ):
@@ -500,7 +503,7 @@ class SSLCheck:
 
     def _get_ssl_days_remaining(self, host: str, port: int) -> Optional[int]:
         # This is a blocking function, intended to be run in an executor
-        context = ssl.create_default_context()
+        context = self._ssl_context
         expire_time: Optional[datetime] = None
         try:
             with socket.create_connection((host, port), timeout=5) as sock:

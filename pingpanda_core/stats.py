@@ -54,6 +54,8 @@ class IPStats:
             elif self.current_status == "up" and new_status == "down":
                 self.downtime_events += 1
                 self.downtime_periods.append({"start": timestamp})
+                # Keep only the 100 most recent outage periods to bound memory.
+                self.downtime_periods = self.downtime_periods[-100:]
 
             self.last_status_change = timestamp
             self.status_change_times.append(timestamp)

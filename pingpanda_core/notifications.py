@@ -51,6 +51,7 @@ class NotificationManager:
         self.persistence = persistence
         self.status_dir = persistence.status_dir
         self._failure_counts: Dict[str, int] = {}
+        self._hostname = socket.gethostname()
 
     async def notify(
         self,
@@ -63,7 +64,7 @@ class NotificationManager:
         if not self._should_notify(check_type, target, status):
             return
 
-        hostname = socket.gethostname()
+        hostname = self._hostname
         formatted_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         emoji = "✅" if status == "ok" else "🔴"
 
