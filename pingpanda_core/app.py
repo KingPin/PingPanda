@@ -167,8 +167,8 @@ class PingPanda:
 
         self.interval = get_int("interval", 15)
         self.verbose = get_bool("verbose", False)
-        self.retry_count = int(self.config.get("RETRY_COUNT", 3))
-        self.jitter_seconds = float(self.config.get("JITTER_SECONDS", 5.0))
+        self.retry_count = get_int("retry_count", 3)
+        self.jitter_seconds = get_float("jitter_seconds", 5.0)
         self.success_http_codes = [
             int(code.strip())
             for code in str(self.config.get("success_http_codes", "200")).split(",")

@@ -105,8 +105,5 @@ def main() -> None:
         pass
 
 
-PingPanda = PingPandaApp
-
-
 if __name__ == "__main__":
     main()
