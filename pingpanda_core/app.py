@@ -227,6 +227,7 @@ class PingPanda:
 
         self.enable_prometheus = get_bool("enable_prometheus", False)
         self.prometheus_port = get_int("prometheus_port", 9090)
+        self.prometheus_bind_address = str(self.config.get("prometheus_bind_address", "127.0.0.1"))
 
         self.enable_adaptive_backoff = get_bool("enable_adaptive_backoff", True)
         self.backoff_min_seconds = max(1.0, get_float("backoff_min_seconds", 10.0))
@@ -315,8 +316,12 @@ class PingPanda:
         self.website_errors = counter("pingpanda_website_errors_total", "Total website check errors", ["url"])
         self.ssl_errors = counter("pingpanda_ssl_errors_total", "Total SSL check errors", ["domain"])
 
-        start_server(self.prometheus_port)
-        self.logger.info("Prometheus metrics server started on port %s", self.prometheus_port)
+        start_server(self.prometheus_port, addr=self.prometheus_bind_address)
+        self.logger.info(
+            "Prometheus metrics server started on %s:%s",
+            self.prometheus_bind_address,
+            self.prometheus_port,
+        )
 
     @classmethod
     def _ensure_prometheus(cls) -> Optional[Dict[str, Any]]:

@@ -44,6 +44,9 @@ services:
       # Prometheus settings
       - ENABLE_PROMETHEUS=true
       - PROMETHEUS_PORT=9090
+      # Bind to 0.0.0.0 inside Docker so the port mapping below works.
+      # On bare-metal leave this unset (defaults to 127.0.0.1).
+      - PROMETHEUS_BIND_ADDRESS=0.0.0.0
       
       # Advanced Statistics Configuration
       - ENABLE_ADVANCED_STATS=true
