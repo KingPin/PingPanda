@@ -481,6 +481,10 @@ class PingPanda:
             self.last_summary_time = now
 
     def output_status_summary(self) -> None:
+        # Always print startup information directly so it's visible regardless
+        # of LOG_LEVEL. Use print() for the banner; subsequent details use logger.
+        print("=== PingPanda Status Summary ===", flush=True)
+        print(f"Running with interval: {self.interval}s", flush=True)
         self.logger.info("=== PingPanda Status Summary ===")
         self.logger.info("Running with interval: %s seconds", self.interval)
 
@@ -502,8 +506,6 @@ class PingPanda:
             self.logger.info("Filtering: Showing only SUCCESSFUL results")
         elif self.show_only_failure:
             self.logger.info("Filtering: Showing only FAILED results")
-        elif self.show_only_success and self.show_only_failure:
-            self.logger.warning("Filtering: Both success and failure filters enabled - no results will be shown")
         else:
             self.logger.info("Filtering: Showing ALL results")
 
@@ -580,6 +582,9 @@ class PingPanda:
             await self._cleanup()
 
     async def _cleanup(self) -> None:
+        self.logger.info("PingPanda shutting down...")
+        print("\nPingPanda shutting down...", flush=True)
+
         if self.http_session:
             await self.http_session.close()
             self.http_session = None
@@ -590,6 +595,8 @@ class PingPanda:
 
         if self.stats_manager:
             self.stats_manager.save()
+            self.logger.info("Final statistics:")
+            self._output_stats_summary()
 
 
 __all__ = ["PingPanda", "NormalizedConfig"]

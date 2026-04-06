@@ -61,8 +61,17 @@ class NotificationManager:
         target: str,
         session: Optional[aiohttp.ClientSession] = None,
     ) -> None:
+        is_recovery = status == "ok" and self._failure_counts.get(
+            self._status_key(check_type, target), 0
+        ) >= self.settings.alert_threshold
+
         if not self._should_notify(check_type, target, status):
             return
+
+        if is_recovery:
+            self.logger.info(
+                "RECOVERY: %s check for %s is back to normal", check_type, target
+            )
 
         hostname = self._hostname
         formatted_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
