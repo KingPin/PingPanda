@@ -391,11 +391,11 @@ class PingPanda:
             self.stats_manager = StatsManager(self.logger, stats_settings, persistence=self.persistence)
             self.stats_manager.load()
             self.stats_logger = self.stats_manager.stats_logger
-            self.ip_stats = self.stats_manager.ip_stats
+            self.target_stats = self.stats_manager.target_stats
         else:
             self.stats_manager = None
             self.stats_logger = None
-            self.ip_stats: Dict[str, Any] = {}
+            self.target_stats: Dict[str, Any] = {}
 
         self.last_summary_time: Optional[datetime] = datetime.now() if self.enable_advanced_stats else None
 

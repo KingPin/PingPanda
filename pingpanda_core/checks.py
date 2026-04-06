@@ -22,7 +22,7 @@ from tenacity import (
 )
 
 from .registry import BaseCheck, CheckDependencies, register_check
-from .stats import StatsManager, StatsUpdateResult
+from .stats import StatsManager
 
 
 def _sanitize(value: str) -> str:
@@ -101,6 +101,7 @@ class DNSCheck(BaseCheck):
             success = False
 
         app.failure_tracker.record_result(f"dns:{domain}", success)
+        await self._record_stats_result(domain, success)
 
         if not success:
             if app._should_log_result(False):
@@ -166,7 +167,7 @@ class PingCheck(BaseCheck):
                         app.ping_status.labels(target=ip).set(1)
                         app.ping_response_time.labels(target=ip).observe(delay)
 
-                    await self._update_stats(ip, True)
+                    await self._record_stats_result(ip, True)
 
                     await app.send_notification(
                         f"Ping successful in {duration_ms:.2f}ms",
@@ -193,34 +194,13 @@ class PingCheck(BaseCheck):
                 app.ping_status.labels(target=ip).set(0)
                 app.ping_errors.labels(target=ip).inc()
 
-            await self._update_stats(ip, False)
+            await self._record_stats_result(ip, False)
 
             await app.send_notification(
                 f"Failed to ping host after {app.retry_count} attempts",
                 status="error",
                 check_type="Ping",
                 target=ip,
-            )
-
-    async def _update_stats(self, ip: str, success: bool) -> None:
-        if not self.stats:
-            return
-
-        result: StatsUpdateResult = self.stats.update_ip(ip, success)
-
-        if result.flapping_changed and result.is_flapping:
-            await self.ctx.send_notification(
-                f"IP {ip} is flapping (>{self.ctx.flap_threshold} status changes "
-                f"in {self.ctx.flap_window_seconds}s)",
-                status="error",
-                check_type="Flapping",
-                target=ip,
-            )
-        elif result.status_changed and success and not result.is_flapping:
-            self.ctx.logger.info(
-                "IP %s recovered (was down for %.1fs)",
-                ip,
-                self.stats.ip_stats[ip].total_downtime,
             )
 
 
@@ -343,6 +323,7 @@ class WebsiteCheck(BaseCheck):
                 app.website_errors.labels(url=website).inc()
 
         app.failure_tracker.record_result(f"website:{website}", success)
+        await self._record_stats_result(website, success)
 
 
 # ---------------------------------------------------------------------------
@@ -459,6 +440,7 @@ class SSLCheck(BaseCheck):
                 app.ssl_errors.labels(domain=domain).inc()
 
         app.failure_tracker.record_result(f"ssl:{domain}", success)
+        await self._record_stats_result(domain, success)
 
     def _parse_domain(self, domain: str) -> tuple[str, int]:
         if ":" in domain:

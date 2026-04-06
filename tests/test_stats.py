@@ -49,5 +49,5 @@ def test_output_summary_logs_stats(tmp_path, caplog):
     with caplog.at_level(logging.INFO, logger=logger_name):
         manager.output_summary()
 
-    assert "PingPanda IP Statistics Summary" in caplog.text
-    assert "1/1 IPs UP" in caplog.text or "0/1 IPs UP" in caplog.text
+    assert "PingPanda Target Statistics Summary" in caplog.text
+    assert "1/1 targets UP" in caplog.text or "0/1 targets UP" in caplog.text

@@ -132,6 +132,37 @@ class BaseCheck(ABC):
                     result,
                 )
 
+    async def _record_stats_result(
+        self, target: str, success: bool
+    ) -> None:
+        """Record a check result into StatsManager and emit flapping/recovery events.
+
+        Concrete checks call this after determining success/failure.
+        The key format is "{check_name}:{target}".
+        """
+        if not self.stats:
+            return
+
+        key = f"{self.check_name}:{target}"
+        result = self.stats.update_target(key, success)
+
+        if result.flapping_changed and result.is_flapping:
+            await self.ctx.send_notification(
+                f"{self.check_name} {target} is flapping "
+                f"(>{self.ctx.flap_threshold} status changes "
+                f"in {self.ctx.flap_window_seconds}s)",
+                status="error",
+                check_type="Flapping",
+                target=target,
+            )
+        elif result.status_changed and success and not result.is_flapping:
+            ts = self.stats.target_stats.get(key)
+            downtime = ts.total_downtime if ts else 0.0
+            self.ctx.logger.info(
+                "%s %s recovered (was down for %.1fs)",
+                self.check_name, target, downtime,
+            )
+
     @abstractmethod
     async def _check_single(self, target: str) -> None:
         """Perform a check against one target."""
