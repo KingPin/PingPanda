@@ -16,6 +16,7 @@ services:
       - INTERVAL=15
       - VERBOSE=true
       - RETRY_COUNT=3
+      - JITTER_SECONDS=5
       
       # Check enablement
       - ENABLE_PING=true
@@ -72,6 +73,13 @@ services:
       - ./logs:/logs
     ports:
       - "9090:9090"
+    healthcheck:
+      # Probe the Prometheus /metrics endpoint; adjust port if PROMETHEUS_PORT differs.
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:9090/metrics"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
