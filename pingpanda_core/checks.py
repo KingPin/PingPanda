@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import logging
 import socket
 import ssl
@@ -167,8 +168,6 @@ class PingCheck(BaseCheck):
                         app.ping_status.labels(target=ip).set(1)
                         app.ping_response_time.labels(target=ip).observe(delay)
 
-                    await self._record_stats_result(ip, True)
-
                     await app.send_notification(
                         f"Ping successful in {duration_ms:.2f}ms",
                         status="ok",
@@ -185,6 +184,7 @@ class PingCheck(BaseCheck):
             success = False
 
         app.failure_tracker.record_result(f"ping:{ip}", success)
+        await self._record_stats_result(ip, success)
 
         if not success:
             if app._should_log_result(False):
@@ -193,8 +193,6 @@ class PingCheck(BaseCheck):
             if app.enable_prometheus:
                 app.ping_status.labels(target=ip).set(0)
                 app.ping_errors.labels(target=ip).inc()
-
-            await self._record_stats_result(ip, False)
 
             await app.send_notification(
                 f"Failed to ping host after {app.retry_count} attempts",
@@ -337,6 +335,11 @@ class SSLCheck(BaseCheck):
         # Create the SSL context once; ssl.create_default_context() loads CA
         # certs from disk on each call — avoid that in the hot path.
         self._ssl_context = ssl.create_default_context()
+        # Dedicated thread pool so SSL handshakes (blocking I/O) don't compete
+        # with the default executor shared by the rest of the event loop.
+        self._executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=10, thread_name_prefix="ssl-check"
+        )
 
     @property
     def check_name(self) -> str:
@@ -379,7 +382,7 @@ class SSLCheck(BaseCheck):
 
                     loop = asyncio.get_running_loop()
                     days_remaining = await loop.run_in_executor(
-                        None, self._get_ssl_days_remaining, host, port
+                        self._executor, self._get_ssl_days_remaining, host, port
                     )
 
                     if days_remaining is None:
@@ -443,6 +446,20 @@ class SSLCheck(BaseCheck):
         await self._record_stats_result(domain, success)
 
     def _parse_domain(self, domain: str) -> tuple[str, int]:
+        # Bracketed IPv6: "[2001:db8::1]" or "[2001:db8::1]:8443"
+        if domain.startswith("["):
+            bracket_end = domain.find("]")
+            if bracket_end == -1:
+                return domain, 443
+            host = domain[1:bracket_end]
+            rest = domain[bracket_end + 1:]
+            if rest.startswith(":"):
+                return host, int(rest[1:])
+            return host, 443
+        # Bare IPv6 (multiple colons): treat entire string as host
+        if domain.count(":") > 1:
+            return domain, 443
+        # "hostname:port" or plain hostname
         if ":" in domain:
             host, port = domain.split(":", 1)
             return host, int(port)
