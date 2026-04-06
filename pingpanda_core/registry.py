@@ -155,6 +155,13 @@ class BaseCheck(ABC):
                 check_type="Flapping",
                 target=target,
             )
+        elif result.flapping_changed and not result.is_flapping:
+            await self.ctx.send_notification(
+                f"{self.check_name} {target} flapping resolved",
+                status="ok",
+                check_type="Flapping",
+                target=target,
+            )
         elif result.status_changed and success and not result.is_flapping:
             ts = self.stats.target_stats.get(key)
             downtime = ts.total_downtime if ts else 0.0
