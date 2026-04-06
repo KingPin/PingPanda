@@ -509,7 +509,7 @@ class SSLCheck:
                     if not not_after:
                         return None
 
-                    expire_time = datetime.strptime(str(not_after), "%b %d %H:%M:%S %Y %Z")
+                    expire_time = datetime.strptime(str(not_after), "%b %d %H:%M:%S %Y %Z").replace(tzinfo=timezone.utc)
         except Exception as e:
             self.app.logger.debug("SSL handshake failed for %s:%s: %s", host, port, e)
             raise
