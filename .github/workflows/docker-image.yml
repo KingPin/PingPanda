@@ -125,16 +125,20 @@ jobs:
 
       # Generate short SHA for use in Trivy scanner
 
+      - name: Install Trivy
+        if: github.ref == 'refs/heads/main' || github.event_name == 'release'
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+
       - name: Run Trivy vulnerability scanner
         if: github.ref == 'refs/heads/main' || github.event_name == 'release'
-        uses: aquasecurity/trivy-action@master
-        with:
-          scan-type: image
-          image-ref: ghcr.io/${{ steps.repo.outputs.owner_lower }}/pingpanda:sha-${{ steps.repo.outputs.short_sha }}
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-          severity: 'MEDIUM,CRITICAL,HIGH'
-          hide-progress: false
+        run: |
+          trivy image \
+            --format sarif \
+            --output trivy-results.sarif \
+            --severity MEDIUM,HIGH,CRITICAL \
+            --no-progress \
+            ghcr.io/${{ steps.repo.outputs.owner_lower }}/pingpanda:sha-${{ steps.repo.outputs.short_sha }}
 
       - name: Upload Trivy scan results to GitHub Security tab
         if: github.ref == 'refs/heads/main' || github.event_name == 'release'
