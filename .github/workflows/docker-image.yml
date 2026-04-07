@@ -109,7 +109,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'release' }}
             type=semver,pattern={{major}},enable=${{ github.event_name == 'release' }}
           flavor: |
-            latest=false  # Explicitly control 'latest' tag separately
+            latest=false
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v7
