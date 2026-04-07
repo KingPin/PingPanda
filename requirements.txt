@@ -1,4 +1,4 @@
-aiohttp>=3.13.3
+aiohttp>=3.13.5
 aiodns>=3.1.0
 aioping>=0.4.0
 prometheus-client>=0.17.0
