@@ -1,0 +1,15 @@
+# Ping-only: ICMP reachability for a set of hosts / routers / upstream DNS.
+services:
+  pingpanda:
+    image: ghcr.io/kingpin/pingpanda:latest
+    container_name: pingpanda-ping
+    environment:
+      - INTERVAL=15
+      - ENABLE_DNS=false
+      - ENABLE_PING=true
+      - ENABLE_WEBSITE_CHECK=false
+      - ENABLE_SSL_CHECK=false
+      - PING_IPS=1.1.1.1,8.8.8.8,9.9.9.9,192.168.1.1
+    cap_drop: [ALL]
+    cap_add: [NET_RAW]   # required for ICMP
+    restart: unless-stopped

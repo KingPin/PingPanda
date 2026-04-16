@@ -1,0 +1,13 @@
+# Minimal: DNS + ping only, no notifications, no metrics.
+# Great for kicking the tires.
+services:
+  pingpanda:
+    image: ghcr.io/kingpin/pingpanda:latest
+    container_name: pingpanda
+    environment:
+      - INTERVAL=30
+      - DOMAINS=google.com,github.com
+      - PING_IPS=1.1.1.1,8.8.8.8
+    cap_drop: [ALL]
+    cap_add: [NET_RAW]
+    restart: unless-stopped

@@ -1,0 +1,80 @@
+# Full: every feature wired on. Use as a reference for tuning — not every
+# knob needs to be set in production.
+services:
+  pingpanda:
+    image: ghcr.io/kingpin/pingpanda:latest
+    container_name: pingpanda
+    environment:
+      # --- Core ---
+      - INTERVAL=15
+      - JITTER_SECONDS=5
+      - RETRY_COUNT=3
+      - VERBOSE=true
+      - LOG_LEVEL=INFO
+      - LOG_DIR=/logs
+      - LOG_FILE=pingpanda.log
+      - LOG_TO_FILE=true
+      - LOG_TO_TERMINAL=true
+      - MAX_LOG_SIZE=1048576
+      - LOG_BACKUP_COUNT=5
+
+      # --- Checks ---
+      - ENABLE_DNS=true
+      - DOMAINS=google.com,github.com,cloudflare.com,example.com
+      - ENABLE_PING=true
+      - PING_IPS=1.1.1.1,8.8.8.8,9.9.9.9
+      - ENABLE_WEBSITE_CHECK=true
+      - CHECK_WEBSITE=https://www.google.com,https://api.github.com/status
+      - SUCCESS_HTTP_CODES=200,201,202,204
+      - ENABLE_SSL_CHECK=true
+      - SSL_CHECK_DOMAINS=google.com,github.com,cloudflare.com
+      - SSL_WARN_DAYS=30
+      - SSL_CRITICAL_DAYS=7
+
+      # --- Notifications (fan-out to all three) ---
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}
+      - SLACK_USERNAME=PingPanda
+      - SLACK_ICON_EMOJI=:panda_face:
+      - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
+      - DISCORD_USERNAME=PingPanda
+      - ALERT_THRESHOLD=3
+      - NOTIFY_RECOVERY=true
+      - NOTIFICATION_RETRY_ATTEMPTS=3
+      - NOTIFICATION_RETRY_BACKOFF_SECONDS=1.0
+
+      # --- Advanced stats + flap detection ---
+      - ENABLE_ADVANCED_STATS=true
+      - SUMMARY_INTERVAL_SECONDS=300
+      - STORE_STATS_LOG=true
+      - STATS_LOG_FORMAT=csv
+      - STATS_LOG_MAX_SIZE=10485760
+      - PERSIST_STATS=true
+      - FLAP_THRESHOLD=5
+      - FLAP_WINDOW_SECONDS=300
+
+      # --- Adaptive backoff + circuit breaker ---
+      - ENABLE_ADAPTIVE_BACKOFF=true
+      - BACKOFF_MIN_SECONDS=10
+      - BACKOFF_MAX_SECONDS=300
+      - CIRCUIT_BREAKER_THRESHOLD=5
+      - CIRCUIT_BREAKER_COOLDOWN_SECONDS=60
+
+      # --- Prometheus ---
+      - ENABLE_PROMETHEUS=true
+      - PROMETHEUS_PORT=9090
+      - PROMETHEUS_BIND_ADDRESS=0.0.0.0
+    volumes:
+      - ./logs:/logs
+    ports:
+      - "9090:9090"
+    cap_drop: [ALL]
+    cap_add: [NET_RAW]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:9090/metrics"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s

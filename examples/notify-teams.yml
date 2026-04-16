@@ -1,0 +1,14 @@
+# Microsoft Teams-only notifications.
+services:
+  pingpanda:
+    image: ghcr.io/kingpin/pingpanda:latest
+    container_name: pingpanda
+    environment:
+      - DOMAINS=google.com,github.com
+      - PING_IPS=1.1.1.1
+      - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL}
+      - ALERT_THRESHOLD=3
+      - NOTIFY_RECOVERY=true
+    cap_drop: [ALL]
+    cap_add: [NET_RAW]
+    restart: unless-stopped

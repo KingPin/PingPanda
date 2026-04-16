@@ -68,7 +68,7 @@ docker run -d --name pingpanda \
 
 ### Docker Compose
 
-A full-featured `compose.yml` is included in the repo. Pulled-image version:
+A full-featured `compose.yml` is included in the repo root. For task-specific setups (Slack-only, SSL-only, Prometheus stack, etc.), see [`examples/`](examples/README.md). Pulled-image version:
 
 ```yaml
 services:
@@ -356,6 +356,7 @@ flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127
 
 ## Extended documentation
 
+- [`examples/`](examples/README.md) — ready-to-run compose files for common setups (minimal, Slack-only, SSL-only, Prometheus stack, …)
 - [`docs/ADAPTIVE_BACKOFF.md`](docs/ADAPTIVE_BACKOFF.md) — circuit-breaker state machine and tuning
 - [`docs/FILTERING_FEATURES.md`](docs/FILTERING_FEATURES.md) — output filtering options
 - [`docs/README.md`](docs/README.md) — developer notes

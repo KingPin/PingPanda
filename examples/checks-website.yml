@@ -1,0 +1,17 @@
+# Website-only: HTTP/HTTPS status-code checks.
+# Customize SUCCESS_HTTP_CODES per endpoint needs (e.g. 204 for health probes).
+services:
+  pingpanda:
+    image: ghcr.io/kingpin/pingpanda:latest
+    container_name: pingpanda-web
+    environment:
+      - INTERVAL=30
+      - ENABLE_DNS=false
+      - ENABLE_PING=false
+      - ENABLE_WEBSITE_CHECK=true
+      - ENABLE_SSL_CHECK=false
+      - CHECK_WEBSITE=https://www.google.com,https://api.github.com/status,https://httpbin.org/status/200
+      - SUCCESS_HTTP_CODES=200,201,204
+      - RETRY_COUNT=3
+    cap_drop: [ALL]
+    restart: unless-stopped

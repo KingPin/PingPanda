@@ -1,0 +1,15 @@
+# DNS-only: verify resolution for a list of domains.
+# Useful for monitoring an internal resolver or spotting propagation issues.
+services:
+  pingpanda:
+    image: ghcr.io/kingpin/pingpanda:latest
+    container_name: pingpanda-dns
+    environment:
+      - INTERVAL=60
+      - ENABLE_DNS=true
+      - ENABLE_PING=false
+      - ENABLE_WEBSITE_CHECK=false
+      - ENABLE_SSL_CHECK=false
+      - DOMAINS=google.com,github.com,cloudflare.com,internal.example.com
+    cap_drop: [ALL]
+    restart: unless-stopped

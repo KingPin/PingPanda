@@ -1,0 +1,19 @@
+# SSL-only: certificate expiry tracking.
+# Pairs well with a long INTERVAL — certificates don't move quickly.
+services:
+  pingpanda:
+    image: ghcr.io/kingpin/pingpanda:latest
+    container_name: pingpanda-ssl
+    environment:
+      - INTERVAL=3600                 # hourly is plenty for cert checks
+      - ENABLE_DNS=false
+      - ENABLE_PING=false
+      - ENABLE_WEBSITE_CHECK=false
+      - ENABLE_SSL_CHECK=true
+      - SSL_CHECK_DOMAINS=google.com,github.com,cloudflare.com,example.com
+      - SSL_WARN_DAYS=30              # warn when cert expires in <=30 days
+      - SSL_CRITICAL_DAYS=7           # critical when <=7 days
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}
+      - ALERT_THRESHOLD=1             # cert problems shouldn't wait for 3 retries
+    cap_drop: [ALL]
+    restart: unless-stopped

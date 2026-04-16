@@ -1,0 +1,18 @@
+# Slack-only notifications.
+# Set SLACK_WEBHOOK_URL in your shell or a .env file next to this compose.
+services:
+  pingpanda:
+    image: ghcr.io/kingpin/pingpanda:latest
+    container_name: pingpanda
+    environment:
+      - DOMAINS=google.com,github.com
+      - PING_IPS=1.1.1.1
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}
+      - SLACK_CHANNEL=#alerts
+      - SLACK_USERNAME=PingPanda
+      - SLACK_ICON_EMOJI=:panda_face:
+      - ALERT_THRESHOLD=3
+      - NOTIFY_RECOVERY=true
+    cap_drop: [ALL]
+    cap_add: [NET_RAW]
+    restart: unless-stopped

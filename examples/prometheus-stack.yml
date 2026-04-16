@@ -1,0 +1,38 @@
+# PingPanda + Prometheus in one stack.
+# Drop a prometheus.yml next to this compose that scrapes pingpanda:9090.
+services:
+  pingpanda:
+    image: ghcr.io/kingpin/pingpanda:latest
+    container_name: pingpanda
+    environment:
+      - DOMAINS=google.com,github.com
+      - PING_IPS=1.1.1.1,8.8.8.8
+      - ENABLE_WEBSITE_CHECK=true
+      - CHECK_WEBSITE=https://www.google.com
+      - ENABLE_PROMETHEUS=true
+      - PROMETHEUS_PORT=9090
+      - PROMETHEUS_BIND_ADDRESS=0.0.0.0
+    cap_drop: [ALL]
+    cap_add: [NET_RAW]
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9091:9090"        # Prometheus UI — PingPanda already owns 9090
+    depends_on:
+      - pingpanda
+    restart: unless-stopped
+# Example prometheus.yml (create next to this file):
+#
+# global:
+#   scrape_interval: 30s
+# scrape_configs:
+#   - job_name: pingpanda
+#     static_configs:
+#       - targets: ["pingpanda:9090"]

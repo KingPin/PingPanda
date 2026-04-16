@@ -1,0 +1,18 @@
+# Fan out the same alert to Slack + Teams + Discord simultaneously.
+# Set any subset of webhook URLs — PingPanda skips providers it can't see.
+services:
+  pingpanda:
+    image: ghcr.io/kingpin/pingpanda:latest
+    container_name: pingpanda
+    environment:
+      - DOMAINS=google.com,github.com
+      - PING_IPS=1.1.1.1
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}
+      - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
+      - ALERT_THRESHOLD=3
+      - NOTIFY_RECOVERY=true
+      - NOTIFICATION_RETRY_ATTEMPTS=3
+    cap_drop: [ALL]
+    cap_add: [NET_RAW]
+    restart: unless-stopped

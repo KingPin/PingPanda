@@ -1,0 +1,47 @@
+# Standard: DNS + ping + website + SSL, Slack alerts, Prometheus metrics,
+# persistent logs. Good starting point for a home-lab / small team.
+services:
+  pingpanda:
+    image: ghcr.io/kingpin/pingpanda:latest
+    container_name: pingpanda
+    environment:
+      - INTERVAL=15
+      - JITTER_SECONDS=5
+      - RETRY_COUNT=3
+
+      # Checks
+      - ENABLE_DNS=true
+      - DOMAINS=google.com,github.com,cloudflare.com
+      - ENABLE_PING=true
+      - PING_IPS=1.1.1.1,8.8.8.8
+      - ENABLE_WEBSITE_CHECK=true
+      - CHECK_WEBSITE=https://www.google.com,https://api.github.com
+      - SUCCESS_HTTP_CODES=200,201,204
+      - ENABLE_SSL_CHECK=true
+      - SSL_CHECK_DOMAINS=google.com,github.com
+      - SSL_WARN_DAYS=30
+      - SSL_CRITICAL_DAYS=7
+
+      # Notifications
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}
+      - ALERT_THRESHOLD=3
+      - NOTIFY_RECOVERY=true
+
+      # Metrics
+      - ENABLE_PROMETHEUS=true
+      - PROMETHEUS_PORT=9090
+      - PROMETHEUS_BIND_ADDRESS=0.0.0.0
+    volumes:
+      - ./logs:/logs
+    ports:
+      - "9090:9090"
+    cap_drop: [ALL]
+    cap_add: [NET_RAW]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:9090/metrics"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
