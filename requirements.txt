@@ -1,7 +1,7 @@
 aiohttp>=3.13.5,<4.0
-aiodns>=3.1.0,<4.0
+aiodns>=4.0.0,<5.0
 aioping>=0.4.0,<1.0
-prometheus-client>=0.17.0,<1.0
-pytest-asyncio>=0.21.0
-tenacity>=8.2.0,<10.0
-python-dotenv>=1.0.0,<2.0
+prometheus-client>=0.25.0,<1.0
+pytest-asyncio>=1.0.0
+tenacity>=9.1.0,<10.0
+python-dotenv>=1.2.0,<2.0
