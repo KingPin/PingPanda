@@ -30,7 +30,9 @@ RUN apk add --no-cache --virtual .build-deps \
         musl-dev \
         python3-dev \
         libffi-dev \
-        openssl-dev && \
+        openssl-dev \
+        cmake \
+        make && \
     pip install --no-cache-dir -r requirements.txt && \
     apk del .build-deps
 
