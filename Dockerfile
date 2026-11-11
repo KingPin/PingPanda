@@ -22,8 +22,9 @@ RUN mkdir -p /logs
 # Set working directory
 WORKDIR /app
 
-# Install Python dependencies with build tools, then remove build tools in
-# the same layer so they do not bloat the final image.
+# Install Python dependencies with build tools, then remove build tools and
+# pip in the same layer. pip is not needed at runtime and its vendored
+# packages (urllib3, msgpack, setuptools) trigger image CVE scans.
 COPY requirements.txt .
 RUN apk add --no-cache --virtual .build-deps \
         gcc \
@@ -34,6 +35,7 @@ RUN apk add --no-cache --virtual .build-deps \
         cmake \
         make && \
     pip install --no-cache-dir -r requirements.txt && \
+    pip uninstall -y pip && \
     apk del .build-deps
 
 # Copy the application code
